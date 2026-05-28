@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Aria2 Streamer Interceptor",
+  "version": "1.4",
+  "description": "Intercepts large files and dynamic downloads before the browser consumes single-use tokens.",
+  "permissions": [
+    "downloads",
+    "storage",
+    "cookies",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  }
+}

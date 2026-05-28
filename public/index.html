@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aria2 Streamer Pro</title>
+    <!-- System font stack used instead of Google Fonts to avoid WebView crashes in Tauri -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body id="dropZone">
+    <div class="app-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1>Aria2 Streamer</h1>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active" data-filter="all">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                    All Downloads
+                    <span class="nav-badge" id="badgeAll" style="display:none;">0</span>
+                </a>
+                <a href="#" class="nav-item" data-filter="active">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                    Downloading
+                    <span class="nav-badge" id="badgeActive" style="display:none;">0</span>
+                </a>
+                <a href="#" class="nav-item" data-filter="complete">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                    Completed
+                    <span class="nav-badge" id="badgeComplete" style="display:none;">0</span>
+                </a>
+                <a href="#" class="nav-item" data-filter="failed">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+                    Failed
+                    <span class="nav-badge" id="badgeFailed" style="display:none;">0</span>
+                </a>
+                <a href="#" class="nav-item" data-filter="settings">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                    Preferences
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="global-stats">
+                    <div class="stat-box">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                        <span id="globalDl">0 B/s</span>
+                    </div>
+                    <div class="stat-box">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-purple"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                        <span id="globalUl">0 B/s</span>
+                    </div>
+                </div>
+
+                <div class="speed-limiter" style="margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 15px;">
+                    <label style="font-size: 0.75rem; color: var(--text-secondary); display: block; margin-bottom: 6px;">Global Speed Limit</label>
+                    <select id="speedLimitSelect" onchange="setGlobalSpeedLimit(this.value)" style="width: 100%; padding: 4px; font-size: 0.8rem;">
+                        <option value="0">Unlimited</option>
+                        <option value="10M">10 MB/s</option>
+                        <option value="5M">5 MB/s</option>
+                        <option value="2M">2 MB/s</option>
+                        <option value="1M">1 MB/s</option>
+                        <option value="500K">500 KB/s</option>
+                    </select>
+                </div>
+
+                <!-- Speed Telemetry Graph -->
+                <div class="speed-graph" style="margin-top: 20px; border-top: 1px solid var(--border-subtle); padding-top: 15px;">
+                    <label style="font-size: 0.7rem; color: var(--text-secondary); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 8px;">Realtime Telemetry</label>
+                    <canvas id="speedGraph" width="220" height="50" style="width: 100%; height: 50px; background: rgba(0,0,0,0.15); border-radius: 6px; border: 1px solid var(--border-subtle);"></canvas>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="toolbar">
+                <div class="add-download-section">
+                    <div class="input-group">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                        <input type="text" id="urlInput" placeholder="Paste URL, Magnet Link, or drop .torrent...">
+                    </div>
+                    <div class="input-group narrow">
+                        <input type="text" id="filenameInput" placeholder="Save as...">
+                    </div>
+                    <div class="select-group">
+                        <select id="categorySelect" style="padding:8px 12px; height:100%;">
+                            <option value="">Default Folder</option>
+                            <option value="Software">Software</option>
+                            <option value="Documents">Documents</option>
+                            <option value="Archives">Archives</option>
+                            <option value="Movies">Movies</option>
+                            <option value="TV Shows">TV Shows</option>
+                            <option value="Music">Music</option>
+                        </select>
+                    </div>
+                    <button id="addBtn">Download</button>
+                </div>
+            </header>
+
+            <div class="downloads-container" id="downloadsView">
+                <!-- Search & Sort Filter Row -->
+                <div class="filter-bar">
+                    <div class="search-box" style="flex:1; position:relative; display:flex; align-items:center;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="position:absolute; left:12px; color:var(--text-tertiary); pointer-events:none;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                        <input type="text" id="searchBar" placeholder="Search downloads by name or URL..." style="width:100%;">
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <label style="font-size:0.75rem; color:var(--text-secondary); font-weight:600; text-transform:uppercase; white-space:nowrap;">Sort By:</label>
+                        <select id="sortSelect" style="width:auto; cursor:pointer;">
+                            <option value="date-desc">Newest First</option>
+                            <option value="date-asc">Oldest First</option>
+                            <option value="name-asc">Name (A-Z)</option>
+                            <option value="name-desc">Name (Z-A)</option>
+                            <option value="size-desc">Size (Largest)</option>
+                            <option value="size-asc">Size (Smallest)</option>
+                        </select>
+                    </div>
+                    <button id="clearHistoryBtn" class="clear-btn">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                        Clear Completed
+                    </button>
+                </div>
+                
+                <!-- Header Row for Desktop UI -->
+                <div class="list-header">
+                    <div class="col-name">Name</div>
+                    <div class="col-actions"></div>
+                </div>
+                
+                <div class="downloads-list" id="downloadsList">
+                    <!-- Download items injected via JS -->
+                    <div class="empty-state">Connecting to Aria2 engine...</div>
+                </div>
+            </div>
+
+            <!-- Settings View Container -->
+            <div class="settings-container hidden" id="settingsView" style="flex:1; padding:30px; display:flex; flex-direction:column; gap:20px; overflow-y:auto;">
+                <h2 style="font-size:1.4rem; font-weight:600; margin-bottom:10px;">Preferences</h2>
+                
+                <div class="setting-group" style="display:flex; flex-direction:column; gap:8px; max-width:500px;">
+                    <label style="font-size:0.9rem; color:var(--text-secondary); font-weight:500;">Appearance Theme</label>
+                    <select id="prefTheme" style="padding:10px;">
+                        <option value="system">System Default</option>
+                        <option value="light">Light Mode</option>
+                        <option value="dark">Dark Mode</option>
+                    </select>
+                </div>
+
+                <div class="setting-group" style="display:flex; flex-direction:column; gap:8px; max-width:500px;">
+                    <label style="font-size:0.9rem; color:var(--text-secondary); font-weight:500;">Preferred Media Player</label>
+                    <select id="prefPlayer" style="padding:10px;">
+                        <option value="vlc">VLC Media Player</option>
+                        <option value="iina">IINA Player</option>
+                        <option value="mpv">mpv player</option>
+                        <option value="default">Default macOS Player</option>
+                    </select>
+                </div>
+
+                <div class="setting-group" style="display:flex; flex-direction:column; gap:8px; max-width:500px;">
+                    <label style="font-size:0.9rem; color:var(--text-secondary); font-weight:500;">Default Download Directory</label>
+                    <input type="text" id="prefDir" style="padding:10px;">
+                </div>
+
+                <button id="saveSettingsBtn" style="max-width:200px; padding:10px 20px; font-weight:600;">Save Settings</button>
+            </div>
+        </main>
+    </div>
+    
+    <!-- Drag & Drop Overlay -->
+    <div id="dropOverlay" class="drop-overlay hidden">
+        <div class="drop-message">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+            <h2>Drop .torrent file here</h2>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
