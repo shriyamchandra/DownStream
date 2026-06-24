@@ -1,0 +1,27 @@
+# Dependency directories
+node_modules/
+.node-local/
+
+# Build and distribution directories
+dist/
+src-tauri/target/
+build/
+
+# Local tooling / editor config
+.claude/
+
+# OS-generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Project transient files
+history.json
+aria2.session
+
+# Local configuration files
+config.json
