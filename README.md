@@ -16,9 +16,9 @@ DownStream is a desktop download manager built on top of `aria2c` with a local w
 
 ### Electron + Express backend
 
-- Electron entrypoint: [main.js](main.js)
-- Backend server: [server.js](server.js)
-- Frontend assets: [public/index.html](public/index.html) and [public/app.js](public/app.js)
+- Electron entrypoint: [backend/main.js](backend/main.js)
+- Backend server: [backend/server.js](backend/server.js)
+- Frontend assets: [frontend/index.html](frontend/index.html) and [frontend/js/main.js](frontend/js/main.js)
 
 Flow:
 1. Electron starts and requires the backend server.
