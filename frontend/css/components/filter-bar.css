@@ -1,0 +1,61 @@
+/* ================================================================
+   filter-bar.css — COMPONENT: Filter Bar
+   Single Responsibility: the search/filter bar and its clear
+   button only. Compact input overrides are scoped here so they
+   don't pollute the global input rules in inputs.css.
+   ================================================================ */
+
+.filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px var(--space-xl);
+    border-bottom: 1px solid var(--divider);
+    background: var(--bg-filter-bar);
+}
+
+/* Compact sizing for filter inputs — scoped so they don't affect
+   the base input rules (Interface Segregation). */
+.filter-bar input  {
+    height: var(--input-compact-height) !important;
+    font-size: 0.82rem;
+    border-radius: var(--radius-md);
+    background: var(--bg-filter-input);
+    border: 1px solid var(--border-default);
+    padding: 0 10px 0 32px !important;
+    color: var(--text-primary);
+}
+
+.filter-bar select {
+    height: var(--input-compact-height) !important;
+    font-size: 0.82rem;
+    border-radius: var(--radius-md);
+    background: var(--bg-filter-input);
+    border: 1px solid var(--border-default);
+    padding: 0 28px 0 10px !important;
+    color: var(--text-primary);
+}
+
+/* Clear / reset button */
+.clear-btn {
+    height: var(--input-compact-height);
+    padding: 0 11px;
+    font-size: 0.79rem;
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-default);
+    background: var(--bg-surface);
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.clear-btn:hover {
+    background: var(--danger-soft);
+    color: var(--danger);
+    border-color: var(--danger-border);
+}

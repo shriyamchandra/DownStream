@@ -1,0 +1,30 @@
+/* ================================================================
+   responsive.css — LAYER 7: Responsive Overrides
+   Single Responsibility: media query breakpoint adjustments only.
+   References layout and component classes but adds no new rules.
+   ================================================================ */
+
+/* --- Tablet (≤ 1024px) ----------------------------------------- */
+@media (max-width: 1024px) {
+    .sidebar { width: 216px; }
+    .col-size, .col-size-data { display: none; }
+}
+
+/* --- Mobile (≤ 768px) ------------------------------------------ */
+@media (max-width: 768px) {
+    .sidebar      { position: fixed; left: -100%; transition: left var(--transition-slow); z-index: 50; }
+    .sidebar.open { left: 0; }
+
+    .col-speed, .col-speed-data { display: none; }
+    .col-progress, .col-progress-data { width: 100px; }
+
+    /* Stack toolbar inputs vertically instead of squeezing them */
+    .toolbar { padding: 12px var(--space-lg); }
+    .add-download-section { flex-direction: column; align-items: stretch; gap: var(--space-sm); }
+
+    .input-group,
+    .input-group.narrow,
+    .select-group { flex: 1 1 auto; width: 100%; min-width: 0; }
+
+    #addBtn { width: 100%; }
+}

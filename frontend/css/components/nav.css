@@ -1,0 +1,184 @@
+/* ================================================================
+   nav.css — COMPONENT: Sidebar Navigation
+   Single Responsibility: sidebar nav items, badges, footer stats,
+   speed limiter, telemetry graph. Nothing outside the sidebar nav.
+   ================================================================ */
+
+/* --- Nav container ---------------------------------------------- */
+.sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    padding: var(--space-md) var(--space-sm);
+    flex: 1;
+    gap: 1px;
+}
+
+.nav-section-label {
+    font-size: 0.66rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-muted);
+    padding: var(--space-md) var(--space-md) var(--space-xs);
+}
+
+.nav-section-label:not(:first-child) {
+    margin-top: var(--space-sm);
+}
+
+/* --- Nav item base ---------------------------------------------- */
+.nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px var(--space-md);
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 0.86rem;
+    font-weight: 500;
+    border-radius: var(--radius-md);
+    transition: background var(--transition-fast), color var(--transition-fast);
+    position: relative;
+    cursor: pointer;
+}
+
+.nav-item svg { flex-shrink: 0; opacity: 0.7; transition: opacity var(--transition-fast); }
+
+/* Active indicator bar */
+.nav-item::before {
+    content: '';
+    position: absolute;
+    left: 3px;
+    top: 50%;
+    transform: translateY(-50%) scaleY(0);
+    width: 3px;
+    height: 16px;
+    background: var(--accent);
+    border-radius: var(--radius-full);
+    transition: transform var(--transition-fast);
+}
+
+/* --- Nav item states -------------------------------------------- */
+.nav-item:hover { background: var(--hover-bg); color: var(--text-primary); }
+.nav-item:hover svg { opacity: 0.9; }
+
+.nav-item.active { background: var(--active-bg); color: var(--text-primary); font-weight: 600; }
+.nav-item.active::before { transform: translateY(-50%) scaleY(1); }
+.nav-item.active svg { opacity: 1; color: var(--accent); }
+
+/* --- Nav badge (item count) ------------------------------------- */
+.nav-item .nav-badge {
+    margin-left: auto;
+    background: var(--hover-bg);
+    color: var(--text-secondary);
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0 7px;
+    line-height: 18px;
+    border-radius: var(--radius-full);
+    min-width: 20px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
+.nav-item.active .nav-badge { background: var(--accent); color: #fff; }
+
+.nav-item .nav-icon { width: 18px; height: 18px; opacity: 0.7; transition: opacity var(--transition-fast); }
+.nav-item:hover .nav-icon,
+.nav-item.active .nav-icon { opacity: 1; }
+
+/* --- Sidebar footer --------------------------------------------- */
+.sidebar-footer {
+    padding: var(--space-md);
+    border-top: 1px solid var(--divider);
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+/* --- Global stats boxes ----------------------------------------- */
+.global-stats {
+    display: flex;
+    gap: var(--space-sm);
+}
+
+.stat-box {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    font-size: 0.8rem;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+    padding: 7px 10px;
+    background: var(--bg-surface);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-subtle);
+}
+
+.stat-box span { color: var(--text-primary); font-weight: 600; font-size: 0.78rem; }
+
+.stat-box svg {
+    width: 14px;
+    height: 14px;
+    color: var(--text-tertiary);
+    flex-shrink: 0;
+}
+
+.stat-box svg.text-blue   { color: var(--accent); }
+.stat-box svg.text-purple { color: var(--text-tertiary); }
+
+.stat-box .stat-icon  { width: 28px; height: 28px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.stat-box .stat-icon.blue   { background: var(--accent-soft);   color: var(--accent); }
+.stat-box .stat-icon.purple { background: var(--hover-bg);       color: var(--text-secondary); }
+.stat-box .stat-icon.green  { background: var(--success-soft);   color: var(--success); }
+.stat-box .stat-info  { display: flex; flex-direction: column; gap: 1px; }
+.stat-box .stat-label { font-size: 0.68rem; color: var(--text-tertiary); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.stat-box .stat-value { font-size: 0.92rem; font-weight: 700; color: var(--text-primary); }
+
+/* --- Speed limiter select --------------------------------------- */
+.field-label {
+    display: block;
+    font-size: 0.7rem;
+    color: var(--text-tertiary);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    margin-bottom: 6px;
+}
+
+.speed-limiter select {
+    height: 34px !important;
+    padding: 0 28px 0 10px !important;
+    font-size: 0.82rem;
+}
+
+/* --- Telemetry graph -------------------------------------------- */
+.telemetry {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    padding: 10px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.telemetry-header {
+    font-size: 0.66rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-tertiary);
+    margin-bottom: 8px;
+}
+
+.telemetry-canvas-wrap {
+    background: rgba(0, 0, 0, 0.20);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.theme-light .telemetry-canvas-wrap,
+:root:not(.theme-dark) .telemetry-canvas-wrap { background: rgba(0, 0, 0, 0.04); }
+
+#speedGraph { display: block; width: 100%; height: 56px; }

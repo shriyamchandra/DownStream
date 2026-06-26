@@ -1,0 +1,39 @@
+/* ================================================================
+   reset.css — LAYER 3: Reset & Base
+   Single Responsibility: browser normalisation + root element
+   styles only. No component classes here.
+   ================================================================ */
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+}
+
+body {
+    font-family: var(--font-sans);
+    background-color: var(--bg-body-color);
+    color: var(--text-primary);
+    height: 100vh;
+    overflow: hidden;
+    line-height: 1.5;
+    position: relative;
+    letter-spacing: -0.01em;
+    transition: background-color var(--transition-base), color var(--transition-base);
+}
+
+body::before,
+body::after {
+    content: none;
+}
+
+/* Utility attribute reset */
+[hidden] { display: none !important; }

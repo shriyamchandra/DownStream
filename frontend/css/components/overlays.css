@@ -1,0 +1,154 @@
+/* ================================================================
+   overlays.css — COMPONENT: Overlays & Floating UI
+   Single Responsibility: all floating / full-screen UI layers —
+   drag-drop overlay, context menu, toast notifications, modal
+   dialog, and the bulk-selection bar. Nothing structural here.
+   ================================================================ */
+
+/* --- Drag & Drop overlay --------------------------------------- */
+.drop-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--bg-overlay);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    transition: opacity var(--transition-base), visibility var(--transition-base);
+    opacity: 0;
+    visibility: hidden;
+}
+
+.drop-overlay:not(.hidden),
+.drop-overlay.visible { opacity: 1; visibility: visible; }
+
+.drop-message {
+    border: 1.5px dashed var(--accent);
+    padding: 48px 64px;
+    border-radius: var(--radius-xl);
+    text-align: center;
+    color: var(--accent);
+    background: var(--bg-elevated);
+    box-shadow: var(--shadow-lg);
+    transform: scale(0.97);
+    transition: transform var(--transition-base);
+}
+
+.drop-overlay.visible .drop-message,
+.drop-overlay:not(.hidden) .drop-message { transform: scale(1); }
+
+.drop-message .drop-icon { font-size: 2.6rem; margin-bottom: var(--space-md); opacity: 0.85; }
+.drop-message h2,
+.drop-message h3 { font-size: 1.2rem; font-weight: 700; margin-top: var(--space-sm); margin-bottom: var(--space-xs); color: var(--text-primary); }
+.drop-message p  { font-size: 0.88rem; color: var(--text-secondary); }
+
+/* --- Context menu ---------------------------------------------- */
+.context-menu {
+    position: fixed;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    padding: var(--space-xs);
+    min-width: 200px;
+    box-shadow: var(--shadow-lg);
+    z-index: 1000;
+    animation: menuIn 130ms var(--transition-base);
+}
+
+@keyframes menuIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
+.context-menu-item { display: flex; align-items: center; gap: var(--space-md); padding: 7px var(--space-md); border-radius: var(--radius-sm); font-size: 0.84rem; color: var(--text-secondary); cursor: pointer; transition: background var(--transition-fast), color var(--transition-fast); }
+.context-menu-item:hover         { background: var(--hover-bg); color: var(--text-primary); }
+.context-menu-item.danger        { color: var(--danger); }
+.context-menu-item.danger:hover  { background: var(--danger-soft); }
+.context-menu-divider            { height: 1px; background: var(--divider); margin: var(--space-xs) var(--space-md); }
+
+/* --- Toast notifications --------------------------------------- */
+.toast-container { position: fixed; bottom: var(--space-xl); right: var(--space-xl); display: flex; flex-direction: column; gap: var(--space-md); z-index: 1001; pointer-events: none; }
+
+.toast {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    padding: var(--space-md) var(--space-lg);
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    box-shadow: var(--shadow-lg);
+    pointer-events: all;
+    animation: toastIn 240ms var(--transition-base);
+    max-width: 380px;
+}
+
+.toast.removing { animation: toastOut 180ms ease forwards; }
+
+@keyframes toastIn  { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes toastOut { from { opacity: 1; transform: translateY(0);    } to { opacity: 0; transform: translateY(8px); } }
+
+.toast-icon         { width: 30px; height: 30px; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.toast-icon.success { background: var(--success-soft); color: var(--success); }
+.toast-icon.error   { background: var(--danger-soft);  color: var(--danger); }
+.toast-icon.info    { background: var(--accent-soft);  color: var(--accent); }
+.toast-content      { flex: 1; min-width: 0; }
+.toast-title        { font-weight: 600; font-size: 0.86rem; color: var(--text-primary); }
+.toast-desc         { font-size: 0.78rem; color: var(--text-tertiary); margin-top: 1px; }
+
+/* --- Modal dialog ---------------------------------------------- */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--bg-overlay);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity var(--transition-base), visibility var(--transition-base);
+}
+
+.modal-overlay.visible { opacity: 1; visibility: visible; }
+
+.modal {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-xl);
+    padding: var(--space-2xl);
+    max-width: 480px;
+    width: 90%;
+    box-shadow: var(--shadow-lg);
+    transform: scale(0.97) translateY(8px);
+    transition: transform var(--transition-base);
+}
+
+.modal-overlay.visible .modal { transform: scale(1) translateY(0); }
+.modal-header   { margin-bottom: var(--space-lg); }
+.modal-header h3 { font-size: 1.05rem; font-weight: 700; color: var(--text-primary); }
+.modal-header p  { font-size: 0.84rem; color: var(--text-tertiary); margin-top: 4px; }
+.modal-footer   { display: flex; justify-content: flex-end; gap: var(--space-md); margin-top: var(--space-xl); }
+
+/* --- Selection bar (bulk actions) ------------------------------ */
+.selection-bar {
+    position: fixed;
+    bottom: var(--space-xl);
+    left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-xl);
+    padding: var(--space-sm) var(--space-lg);
+    display: flex;
+    align-items: center;
+    gap: var(--space-lg);
+    box-shadow: var(--shadow-lg);
+    z-index: 100;
+    transition: transform var(--transition-slow);
+}
+
+.selection-bar.visible { transform: translateX(-50%) translateY(0); }
+.selection-count   { font-size: 0.84rem; font-weight: 600; color: var(--text-primary); white-space: nowrap; }
+.selection-actions { display: flex; gap: var(--space-xs); }

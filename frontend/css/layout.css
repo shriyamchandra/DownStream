@@ -1,0 +1,164 @@
+/* ================================================================
+   layout.css — LAYER 4: App Shell & Layout
+   Single Responsibility: structural layout only — ambient bg,
+   app shell, sidebar shell, main content shell, toolbar shell.
+   No component-specific rules (nav items, buttons, etc.) go here.
+   ================================================================ */
+
+/* --- Ambient background (subtle grid + noise) ------------------- */
+.app-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    /* faint grid */
+    background-image:
+        linear-gradient(to right, rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
+    background-size: 38px 38px;
+    /* fade grid toward edges so it reads as texture, not a sheet */
+    -webkit-mask-image: radial-gradient(ellipse 90% 80% at 50% 0%, #000 35%, transparent 100%);
+    mask-image: radial-gradient(ellipse 90% 80% at 50% 0%, #000 35%, transparent 100%);
+}
+
+.app-bg::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    /* very subtle film-grain noise */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 160px 160px;
+    opacity: 0.022;
+}
+
+.theme-light .app-bg {
+    background-image:
+        linear-gradient(to right, rgba(0, 0, 0, 0.025) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(0, 0, 0, 0.025) 1px, transparent 1px);
+}
+
+.theme-light .app-bg::after { opacity: 0.015; }
+
+/* --- App shell -------------------------------------------------- */
+.app-layout {
+    display: flex;
+    height: 100vh;
+    width: 100vw;
+    background: transparent;
+    position: relative;
+    z-index: 1;
+}
+
+/* --- Sidebar shell ---------------------------------------------- */
+.sidebar {
+    width: var(--sidebar-width);
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border-sidebar);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 10;
+}
+
+.sidebar::after { content: none; }
+
+.sidebar-header {
+    height: var(--toolbar-height);
+    padding: 0 var(--space-lg);
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    border-bottom: 1px solid var(--divider);
+}
+
+.sidebar-header .logo-icon {
+    width: 28px;
+    height: 28px;
+    background: var(--accent);
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 0.9rem;
+    flex-shrink: 0;
+}
+
+.sidebar-header h1 {
+    font-size: 0.98rem;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    color: var(--text-primary);
+}
+
+.sidebar-header .version {
+    font-size: 0.68rem;
+    color: var(--text-tertiary);
+    font-weight: 600;
+    background: var(--hover-bg);
+    padding: 2px 7px;
+    border-radius: var(--radius-sm);
+    margin-left: auto;
+}
+
+/* --- Main content shell ----------------------------------------- */
+.main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-content);
+    min-width: 0;
+    position: relative;
+}
+
+/* --- Toolbar shell ---------------------------------------------- */
+.toolbar {
+    min-height: var(--toolbar-height);
+    background: var(--bg-toolbar);
+    border-bottom: 1px solid var(--border-toolbar);
+    display: flex;
+    align-items: center;
+    padding: 10px var(--space-xl);
+    gap: var(--space-lg);
+    position: relative;
+    z-index: 5;
+}
+
+.toolbar-actions { display: flex; align-items: center; gap: var(--space-xs); margin-left: auto; }
+
+.add-download-section {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: center;
+    width: 100%;
+}
+
+/* --- List header ------------------------------------------------- */
+.downloads-container { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+
+.list-header {
+    display: flex;
+    align-items: center;
+    padding: 0 var(--space-2xl);
+    border-bottom: 1px solid var(--divider);
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-tertiary);
+    font-weight: 600;
+    height: var(--header-height);
+    background: var(--header-bg);
+    position: sticky;
+    top: 0;
+    z-index: 3;
+}
+
+/* Column header widths — must stay in sync with data cells in downloads.css */
+.col-name    { flex: 1; min-width: 0; padding-left: 0; }
+.col-size    { width: var(--col-size-width);     text-align: right; }
+.col-status  { width: var(--col-status-width);   text-align: center; }
+.col-speed   { width: var(--col-speed-width);    text-align: right; }
+.col-progress{ width: var(--col-progress-width); text-align: center; }
+.col-actions { width: var(--col-actions-width);  text-align: right; }

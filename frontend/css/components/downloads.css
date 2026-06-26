@@ -1,0 +1,249 @@
+/* ================================================================
+   downloads.css — COMPONENT: Download List & Rows
+   Single Responsibility: the downloads list, each download row,
+   progress bars, row metadata, row actions, and row details panel.
+   Nothing outside the downloads list belongs here.
+   ================================================================ */
+
+/* --- Downloads list container ----------------------------------- */
+.downloads-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-sm) var(--space-lg);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.downloads-list::-webkit-scrollbar { width: 10px; }
+.downloads-list::-webkit-scrollbar-track { background: transparent; }
+.downloads-list::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: var(--radius-full); border: 3px solid transparent; background-clip: padding-box; }
+.downloads-list::-webkit-scrollbar-thumb:hover { background: var(--text-muted); background-clip: padding-box; }
+
+/* --- Download row (flat card) ----------------------------------- */
+.download-row {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    padding: 14px var(--space-lg);
+    border-radius: var(--radius-lg);
+    margin: 0;
+    font-size: 0.86rem;
+    gap: var(--space-sm);
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+    position: relative;
+    cursor: pointer;
+    border: 1px solid var(--border-card);
+    background: var(--bg-card);
+    box-shadow: var(--shadow-card);
+}
+
+.download-row:hover    { background: var(--bg-card-hover); border-color: var(--border-strong); }
+.download-row.selected { border-color: var(--accent); background: var(--bg-card-hover); }
+.download-row.expanded { border-color: var(--accent); background: var(--bg-card-hover); }
+
+/* --- Row top (icon + name + actions) ---------------------------- */
+.row-top { display: flex; align-items: center; gap: var(--space-md); min-width: 0; }
+.row-top .file-icon { align-self: center; }
+
+.row-name {
+    flex: 1;
+    min-width: 0;
+    max-width: 100%;
+    display: block;
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* --- Row progress bar ------------------------------------------- */
+.row-progress-container {
+    height: 4px;
+    background: var(--progress-track);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+    width: 100%;
+    position: relative;
+}
+
+.row-progress-bar {
+    height: 100%;
+    background: var(--accent);
+    border-radius: var(--radius-full);
+    width: 0%;
+    transition: var(--progress-transition);
+    position: relative;
+}
+
+.row-progress-bar::before { content: none; }
+.row-progress-bar::after  { content: none; }
+
+/* --- Row metadata (size · badge · speed) ------------------------ */
+.row-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    font-size: 0.78rem;
+    color: var(--text-tertiary);
+    font-variant-numeric: tabular-nums;
+}
+
+.row-meta .status-badge { margin: 0; flex-shrink: 0; }
+.row-size  { color: var(--text-secondary); flex-shrink: 0; }
+
+.row-speed {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.row-speed .eta { color: var(--text-tertiary); }
+
+/* --- Row actions (hover-reveal) --------------------------------- */
+.row-actions {
+    width: auto;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity var(--transition-fast);
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.download-row:hover .row-actions,
+.download-row.selected .row-actions,
+.download-row.expanded .row-actions { opacity: 1; }
+
+/* --- Row details panel ------------------------------------------ */
+.row-details {
+    margin-top: 2px;
+    padding-top: var(--space-md);
+    border-top: 1px solid var(--divider);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    animation: fadeInSlideDown 0.22s var(--transition-base);
+}
+
+@keyframes fadeInSlideDown {
+    from { opacity: 0; transform: translateY(-5px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.details-grid            { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-md); }
+.detail-meta-item        { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; }
+.detail-meta-item.full-width { grid-column: 1 / -1; }
+.detail-meta-item strong { color: var(--text-tertiary); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+.detail-meta-item span   { color: var(--text-primary); word-break: break-all; font-family: var(--font-sans); }
+
+.detail-meta-item span.url-text,
+.detail-meta-item span.path-text {
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+    background: var(--bg-surface);
+    padding: 6px 8px;
+    border-radius: var(--radius-sm);
+    font-size: 0.74rem;
+    border: 1px solid var(--border-subtle);
+}
+.detail-meta-item span.url-text { max-height: 50px; overflow-y: auto; }
+
+/* Error box inside details */
+.details-error-box {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-sm);
+    background: var(--danger-soft);
+    border: 1px solid var(--danger-border);
+    border-radius: var(--radius-md);
+    padding: 10px 12px;
+    color: var(--danger);
+    font-size: 0.8rem;
+    line-height: 1.45;
+}
+.details-error-box svg { margin-top: 2px; flex-shrink: 0; }
+.details-error-box span strong { text-transform: uppercase; font-size: 0.72rem; margin-right: 4px; }
+
+/* File list inside details */
+.details-section h4 { margin: 0 0 var(--space-sm) 0; font-size: 0.7rem; text-transform: uppercase; color: var(--text-tertiary); letter-spacing: 0.05em; font-weight: 600; }
+
+.details-files-container {
+    max-height: 180px;
+    overflow-y: auto;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--bg-surface);
+    padding: 2px 0;
+}
+
+.details-files-container::-webkit-scrollbar       { width: 8px; }
+.details-files-container::-webkit-scrollbar-track { background: transparent; }
+.details-files-container::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: var(--radius-full); }
+
+.details-file-row          { padding: 8px var(--space-md); border-bottom: 1px solid var(--divider); display: flex; flex-direction: column; gap: 5px; }
+.details-file-row:last-child { border-bottom: none; }
+.file-row-info             { display: flex; align-items: center; gap: var(--space-sm); font-size: 0.78rem; }
+.file-row-index            { color: var(--text-muted); font-family: var(--font-mono); width: 14px; text-align: right; }
+.file-row-name             { flex: 1; color: var(--text-secondary); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-row-size             { color: var(--text-tertiary); font-family: var(--font-mono); font-size: 0.72rem; }
+
+.file-row-progress-container { height: 3px; background: var(--progress-track); border-radius: var(--radius-full); overflow: hidden; width: 100%; }
+.file-row-progress-bar       { height: 100%; background: var(--accent); border-radius: var(--radius-full); width: 0%; transition: var(--progress-transition); }
+
+/* Column data cells — widths mirror list-header column widths in layout.css */
+.col-size-data     { width: var(--col-size-width);     text-align: right;  font-variant-numeric: tabular-nums; color: var(--text-secondary); font-size: 0.84rem; font-weight: 500; }
+.col-speed-data    { width: var(--col-speed-width);    text-align: right;  font-variant-numeric: tabular-nums; color: var(--text-secondary); font-size: 0.84rem; font-weight: 500; font-family: var(--font-mono); }
+.col-progress-data { width: var(--col-progress-width); display: flex; flex-direction: column; gap: 4px; align-items: center; }
+
+/* Inline progress bar (column view) */
+.progress-container { height: 4px; background: var(--progress-track); border-radius: var(--radius-full); overflow: hidden; width: 100%; position: relative; }
+.progress-bar       { height: 100%; background: var(--accent); border-radius: var(--radius-full); width: 0%; transition: var(--progress-transition); position: relative; }
+.progress-bar::after { content: none; }
+
+@keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+
+.progress-text { font-size: 0.72rem; color: var(--text-tertiary); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* --- Empty state ------------------------------------------------ */
+.empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-md);
+    padding: var(--space-3xl);
+    color: var(--text-tertiary);
+    text-align: center;
+}
+
+.empty-state-icon {
+    width: 64px;
+    height: 64px;
+    background: var(--bg-surface);
+    border-radius: var(--radius-lg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.7rem;
+    color: var(--text-muted);
+    border: 1px solid var(--border-default);
+    margin-bottom: var(--space-xs);
+}
+
+.empty-state h3 { font-size: 1rem; font-weight: 600; color: var(--text-secondary); }
+.empty-state p  { font-size: 0.85rem; max-width: 320px; line-height: 1.6; }
+.empty-state .empty-action { margin-top: var(--space-md); }
+
+/* --- Settings (minimal — just text colours) --------------------- */
+.settings-container h2 { color: var(--text-primary); }
+.setting-group label   { color: var(--text-secondary); }
