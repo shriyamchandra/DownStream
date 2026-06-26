@@ -13,7 +13,7 @@ if (process.defaultApp) {
 }
 
 
-// Start the backend server (starts Express on 3000 & spawns aria2c on 6800)
+// Start the backend server (Express on PORT or 3000 & spawns aria2c on ARIA2_PORT or 6800)
 const backend = require('./server.js');
 
 let mainWindow;
@@ -30,12 +30,14 @@ function createWindow() {
   });
 
   // Give the server a moment to boot up, then load the frontend
+  const loadPort = process.env.PORT || process.env.WEB_PORT || 3000;
+  const loadUrl = `http://localhost:${loadPort}`;
   setTimeout(() => {
-    mainWindow.loadURL('http://localhost:3000').catch((err) => {
+    mainWindow.loadURL(loadUrl).catch((err) => {
       console.error('Failed to load page, retrying...', err);
       // Retry once after another short delay if server was slow to start
       setTimeout(() => {
-        mainWindow.loadURL('http://localhost:3000').catch(console.error);
+        mainWindow.loadURL(loadUrl).catch(console.error);
       }, 1000);
     });
   }, 500);

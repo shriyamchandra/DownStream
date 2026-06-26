@@ -32,35 +32,54 @@ function isWithinDownloadDir(targetPath) {
 }
 
 // Function to free up a port by killing processes listening on it (macOS / Linux)
+// Only targets likely aria2c / node / electron processes to avoid killing unrelated services
 function freePort(port) {
     try {
         const pids = execSync(`lsof -t -i:${port}`).toString().trim().split('\n').filter(Boolean);
         if (pids.length > 0) {
-            console.log(`[Port Cleaner] Port ${port} is in use by PID(s): ${pids.join(', ')}. Cleaning up...`);
+            const targets = [];
             pids.forEach(pid => {
                 try {
-                    process.kill(parseInt(pid), 'SIGKILL');
-                } catch (err) {
-                    try {
-                        execSync(`kill -9 ${pid}`);
-                    } catch (e) {}
+                    const cmd = execSync(`ps -p ${pid} -o comm= 2>/dev/null || true`).toString().trim();
+                    if (cmd.includes('node') || cmd.includes('electron') || cmd.includes('aria2c') || cmd === '') {
+                        targets.push(pid);
+                    } else {
+                        console.log(`[Port Cleaner] Skipping non-target PID ${pid} (${cmd}) on port ${port}`);
+                    }
+                } catch (e) {
+                    targets.push(pid); // if ps fails, be conservative
                 }
             });
+            if (targets.length > 0) {
+                console.log(`[Port Cleaner] Port ${port} cleaning targets: ${targets.join(', ')}`);
+                targets.forEach(pid => {
+                    try {
+                        process.kill(parseInt(pid), 'SIGKILL');
+                    } catch (err) {
+                        try {
+                            execSync(`kill -9 ${pid}`);
+                        } catch (e) {}
+                    }
+                });
+            }
         }
     } catch (e) {
         // Port is free or lsof command failed/returned empty
     }
 }
 
-// Ensure ports 3000 and 6800 are free before starting services
-freePort(3000);
-freePort(6800);
+const WEB_PORT = parseInt(process.env.PORT || process.env.WEB_PORT || '3000', 10);
+const ARIA2_PORT = parseInt(process.env.ARIA2_PORT || '6800', 10);
+
+// Ensure ports are free before starting services (deliberate to guarantee startup)
+freePort(WEB_PORT);
+freePort(ARIA2_PORT);
 
 const app = express();
-const port = 3000;
+const port = WEB_PORT;
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, '..', 'frontend')));
 
 // CORS / origin guard.
 // This server exposes file-deleting and app-launching endpoints, so it must NOT
@@ -176,7 +195,7 @@ function saveHistory() {
 // Locate aria2c
 let aria2cPath = 'aria2c';
 const packagedPath = process.resourcesPath ? path.join(process.resourcesPath, 'aria2c') : '';
-const localPath = path.join(__dirname, 'bin', 'aria2c');
+const localPath = path.join(__dirname, '..', 'bin', 'aria2c');
 
 if (packagedPath && fs.existsSync(packagedPath)) {
     aria2cPath = packagedPath;
@@ -195,7 +214,7 @@ const aria2Args = [
     '--enable-rpc=true',
     '--rpc-allow-origin-all=true',
     '--rpc-listen-all=true',
-    '--rpc-listen-port=6800',
+    `--rpc-listen-port=${ARIA2_PORT}`,
     `--dir=${config.downloadDir}`,
     '--stream-piece-selector=inorder',
     '--allow-overwrite=true',
@@ -214,35 +233,61 @@ ariaProcess.on('error', (err) => {
     console.error('Failed to start aria2c. Make sure it is installed (brew install aria2).', err);
 });
 
+ariaProcess.on('exit', (code, signal) => {
+    console.error(`aria2c exited unexpectedly (code=${code}, signal=${signal}). Downloads will stop working until restart.`);
+    // Could implement restart here in future, for now surface the error
+});
+
 // API to stream file via preferred player
 app.post('/api/stream', (req, res) => {
-    const { filename } = req.body;
-    if (!filename) return res.status(400).json({ error: 'Filename required' });
+    const { filename, filepath: providedPath } = req.body;
+    if (!filename && !providedPath) return res.status(400).json({ error: 'Filename or filepath required' });
 
-    // Try to find the file recursively inside config.downloadDir to support subfolders/categories
-    const findFile = (dir, name) => {
-        const files = fs.readdirSync(dir);
-        for (const file of files) {
-            const fullPath = path.join(dir, file);
-            if (fs.statSync(fullPath).isDirectory()) {
-                const found = findFile(fullPath, name);
-                if (found) return found;
-            } else if (file === name) {
-                return fullPath;
+    let filepath = null;
+
+    // Prefer explicitly provided full path (from UI aria data) to avoid collisions on duplicate basenames
+    if (providedPath && isWithinDownloadDir(providedPath) && fs.existsSync(providedPath)) {
+        filepath = providedPath;
+    } else {
+        const name = path.basename(filename || providedPath || '');
+        if (!name) return res.status(400).json({ error: 'Filename required' });
+
+        // Fallback recursive search by basename (for older clients or torrents etc)
+        const findFile = (dir, name) => {
+            const files = fs.readdirSync(dir);
+            for (const file of files) {
+                const fullPath = path.join(dir, file);
+                if (fs.statSync(fullPath).isDirectory()) {
+                    const found = findFile(fullPath, name);
+                    if (found) return found;
+                } else if (file === name) {
+                    return fullPath;
+                }
             }
-        }
-        return null;
-    };
+            return null;
+        };
 
-    const filepath = findFile(config.downloadDir, path.basename(filename));
+        filepath = findFile(config.downloadDir, name);
+    }
+
     if (!filepath) {
         return res.status(404).json({ error: 'File not found on disk yet.' });
+    }
+
+    // Only allow video formats to be opened via media player
+    const VIDEO_EXTS = ['mp4','mkv','avi','mov','webm','flv','wmv','m4v','3gp','ts','mpg','mpeg','m2ts','mts','mxf','vob','ogv','rm','rmvb','divx','hevc','h264']; // keep in sync with frontend isVideoFile
+    const ext = path.extname(filepath).toLowerCase().slice(1);
+    if (!VIDEO_EXTS.includes(ext)) {
+        return res.status(400).json({ error: 'Only video files can be streamed to a media player.' });
     }
 
     try {
         const stat = fs.statSync(filepath);
         if (stat.size < 200000) {
-            return res.status(400).json({ error: 'Buffer not reached. File is < 200KB.' });
+            const hasAriaControl = fs.existsSync(filepath + '.aria2');
+            if (hasAriaControl) {
+                return res.status(400).json({ error: 'Buffer not reached. File is < 200KB.' });
+            }
         }
     } catch(e) {
         return res.status(500).json({ error: 'Could not read file size.' });
@@ -598,7 +643,7 @@ function callAria2(method, params) {
 
         const req = http.request({
             hostname: 'localhost',
-            port: 6800,
+            port: ARIA2_PORT,
             path: '/jsonrpc',
             method: 'POST',
             headers: {

@@ -4,7 +4,7 @@ use std::process::Child;
 use tauri::Manager;
 use include_dir::{include_dir, Dir};
 
-static PUBLIC_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../public");
+static PUBLIC_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../frontend");
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct Settings {
@@ -75,7 +75,7 @@ fn save_settings(app_handle: tauri::AppHandle, settings: Settings) -> Result<(),
 }
 
 #[tauri::command]
-fn stream_file(filename: String, download_dir: String, preferred_player: String) -> Result<(), String> {
+fn stream_file(filename: String, filepath: Option<String>, download_dir: String, preferred_player: String) -> Result<(), String> {
     fn find_file(dir: &std::path::Path, target: &str) -> Option<std::path::PathBuf> {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
@@ -93,11 +93,38 @@ fn stream_file(filename: String, download_dir: String, preferred_player: String)
     }
 
     let search_dir = std::path::Path::new(&download_dir);
-    let filepath = find_file(search_dir, &filename)
-        .ok_or_else(|| "File not found on disk yet.".to_string())?;
+    let mut target_path: Option<std::path::PathBuf> = None;
+
+    // Prefer explicit full path if provided and valid (avoids basename collisions)
+    if let Some(p) = filepath {
+        let pbuf = std::path::PathBuf::from(&p);
+        if pbuf.starts_with(search_dir) && pbuf.exists() {
+            target_path = Some(pbuf);
+        }
+    }
+
+    if target_path.is_none() {
+        let name = std::path::Path::new(&filename).file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(&filename);
+        target_path = find_file(search_dir, name);
+    }
+
+    let filepath = target_path.ok_or_else(|| "File not found on disk yet.".to_string())?;
+
+    // Only video formats for media player
+    let video_exts: [&str; 22] = ["mp4","mkv","avi","mov","webm","flv","wmv","m4v","3gp","ts","mpg","mpeg","m2ts","mts","mxf","vob","ogv","rm","rmvb","divx","hevc","h264"];
+    if let Some(ext) = filepath.extension().and_then(|e| e.to_str()).map(|s| s.to_lowercase()) {
+        if !video_exts.iter().any(|&v| v == ext) {
+            return Err("Only video files can be streamed to a media player.".to_string());
+        }
+    } else {
+        return Err("Only video files can be streamed to a media player.".to_string());
+    }
 
     if let Ok(metadata) = std::fs::metadata(&filepath) {
-        if metadata.len() < 200_000 {
+        let has_control = std::path::Path::new(&(filepath.to_string_lossy().to_string() + ".aria2")).exists();
+        if metadata.len() < 200_000 && has_control {
             return Err("Buffer not reached. File is < 200KB.".to_string());
         }
     } else {
@@ -274,8 +301,9 @@ pub fn run() {
                         } else if url == "/api/stream" && method == "POST" {
                             if let Ok(data) = serde_json::from_str::<serde_json::Value>(&body) {
                                 let filename = data.get("filename").and_then(|v| v.as_str()).unwrap_or("");
+                                let provided = data.get("filepath").and_then(|v| v.as_str()).map(|s| s.to_string());
                                 let cfg = server_config_clone.lock().unwrap();
-                                match stream_file(filename.to_string(), cfg.download_dir.clone(), cfg.preferred_player.clone()) {
+                                match stream_file(filename.to_string(), provided, cfg.download_dir.clone(), cfg.preferred_player.clone()) {
                                     Ok(()) => {
                                         request.respond(
                                             tiny_http::Response::from_string("{\"success\":true}").with_header(json_header.clone())
@@ -315,6 +343,41 @@ pub fn run() {
                                 request.respond(
                                     tiny_http::Response::from_string("{\"success\":true}").with_header(json_header.clone())
                                 ).ok();
+                            }
+                        } else if url == "/api/intercept" && method == "POST" {
+                            // Support Chrome extension in Tauri mode
+                            if let Ok(data) = serde_json::from_str::<serde_json::Value>(&body) {
+                                let url = data.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                                if url.is_empty() {
+                                    let resp = "{\"error\":\"URL is required\"}";
+                                    request.respond(tiny_http::Response::from_string(resp).with_header(json_header.clone()).with_status_code(400)).ok();
+                                } else {
+                                    let mut options = serde_json::json!({});
+                                    if let Some(f) = data.get("filename").and_then(|v| v.as_str()) { if !f.is_empty() { options["out"] = f.into(); } }
+                                    if let Some(r) = data.get("referrer").and_then(|v| v.as_str()) { if !r.is_empty() { options["referer"] = r.into(); } }
+                                    // Send to aria2
+                                    let payload = serde_json::json!({
+                                        "jsonrpc": "2.0", "id": "intercept", "method": "aria2.addUri",
+                                        "params": [[url], options]
+                                    });
+                                    let aria_resp: Result<serde_json::Value, _> = ureq::post("http://127.0.0.1:6800/jsonrpc")
+                                        .send_json(payload).map(|r| r.into_json());
+                                    match aria_resp {
+                                        Ok(val) => {
+                                            if let Some(err) = val.get("error") {
+                                                let msg = err.get("message").and_then(|m| m.as_str()).unwrap_or("RPC error");
+                                                let resp = format!("{{\"error\":\"{}\"}}", msg);
+                                                request.respond(tiny_http::Response::from_string(resp).with_header(json_header.clone())).ok();
+                                            } else {
+                                                request.respond(tiny_http::Response::from_string("{\"success\":true}").with_header(json_header.clone())).ok();
+                                            }
+                                        }
+                                        Err(e) => {
+                                            let resp = format!("{{\"error\":\"{}\"}}", e);
+                                            request.respond(tiny_http::Response::from_string(resp).with_header(json_header.clone())).ok();
+                                        }
+                                    }
+                                }
                             }
                         } else {
                             request.respond(
@@ -390,7 +453,7 @@ pub fn run() {
                     "--enable-rpc=true",
                     "--rpc-allow-origin-all=true",
                     "--rpc-listen-all=true",
-                    "--rpc-listen-port=6800",
+                    "--rpc-listen-port=6800", // Tauri uses fixed 6800; set ARIA2_PORT when using Electron path
                     &format!("--dir={}", settings.download_dir),
                     "--stream-piece-selector=inorder",
                     "--allow-overwrite=true",

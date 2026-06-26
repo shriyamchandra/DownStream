@@ -1,26 +1,30 @@
-// ===== DIAGNOSTIC LOGGING =====
+// ===== DIAGNOSTIC LOGGING (disabled in production) =====
+const DEBUG = false;
 function _log(msg) {
-    console.log(`[DIAG] ${msg}`);
+    if (DEBUG) console.log(`[DIAG] ${msg}`);
 }
 
-// Step 1: Detect environment
-_log('=== DownStream Diagnostics ===');
-_log(`window.__TAURI__ = ${typeof window.__TAURI__} | value = ${JSON.stringify(window.__TAURI__ ? Object.keys(window.__TAURI__) : null)}`);
+// Step 1: Detect environment (only in debug)
+if (DEBUG) {
+    _log('=== DownStream Diagnostics ===');
+    _log(`window.__TAURI__ = ${typeof window.__TAURI__} | value = ${JSON.stringify(window.__TAURI__ ? Object.keys(window.__TAURI__) : null)}`);
+}
 
 const isTauri = window.__TAURI__ !== undefined;
-_log(`isTauri = ${isTauri}`);
-
-if (isTauri) {
-    _log(`__TAURI__.core = ${typeof window.__TAURI__?.core}`);
-    _log(`__TAURI__.core.invoke = ${typeof window.__TAURI__?.core?.invoke}`);
+if (DEBUG) {
+    _log(`isTauri = ${isTauri}`);
+    if (isTauri) {
+        _log(`__TAURI__.core = ${typeof window.__TAURI__?.core}`);
+        _log(`__TAURI__.core.invoke = ${typeof window.__TAURI__?.core?.invoke}`);
+    }
 }
 
-// Step 2: Error catchers
+// Step 2: Error catchers (always active)
 window.onerror = function(message, source, lineno) {
-    _log(`❌ JS ERROR: ${message} at ${source}:${lineno}`);
+    console.error(`[DownStream ERROR] ${message} at ${source}:${lineno}`);
 };
 window.onunhandledrejection = function(event) {
-    _log(`❌ UNHANDLED REJECTION: ${event.reason}`);
+    console.error(`[DownStream UNHANDLED] ${event.reason}`);
 };
 
 class Aria2Client {
@@ -33,8 +37,9 @@ class Aria2Client {
                 this._tryConnect(0);
             }, 50);
         } else {
-            _log('Aria2Client: Using WebSocket (not Tauri)');
-            this.ws = new WebSocket('ws://127.0.0.1:6800/jsonrpc');
+            if (DEBUG) _log('Aria2Client: Using WebSocket (not Tauri)');
+            const ariaPort = (window.ARIA2_PORT || 6800);
+            this.ws = new WebSocket(`ws://127.0.0.1:${ariaPort}/jsonrpc`);
             this.msgId = 0;
             this.callbacks = {};
             this.onMessage = null;
@@ -149,8 +154,10 @@ async function callApi(endpoint, data = {}) {
             }
         } else if (endpoint === '/api/stream') {
             try {
+                const filepath = data.filepath || null;
                 await window.__TAURI__.core.invoke('stream_file', {
                     filename: data.filename,
+                    filepath: filepath,
                     downloadDir: appConfig.downloadDir,
                     preferredPlayer: appConfig.preferredPlayer
                 });
@@ -402,6 +409,18 @@ function getFileName(d) {
     return 'Unknown File';
 }
 
+// Video formats only for the Stream / player feature
+const VIDEO_EXTS = [
+    'mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv', 'm4v', '3gp', 'ts', 'mpg', 'mpeg',
+    'm2ts', 'mts', 'mxf', 'vob', 'ogv', 'rm', 'rmvb', 'divx', 'hevc', 'h264'
+];
+
+function isVideoFile(filename) {
+    if (!filename) return false;
+    const ext = filename.split('.').pop().toLowerCase();
+    return VIDEO_EXTS.includes(ext);
+}
+
 client.onConnect = () => {
     loadSettings();
     refreshDownloads();
@@ -448,34 +467,37 @@ async function refreshDownloads() {
         const stopped = await client.call('tellStopped', [0, 100]).catch(() => []);
         const globalStat = await client.call('getGlobalStat').catch(() => ({ downloadSpeed: 0, uploadSpeed: 0 }));
         
-        const liveDownloads = [...active, ...waiting, ...stopped];
-        const historyList = await callApi('/api/history').catch(() => []);
-        
-        // Merge: map GIDs to combined items
-        const mergedMap = new Map();
-        
-        historyList.forEach(item => {
-            mergedMap.set(item.gid, item);
+        const liveMap = new Map();
+        [...active, ...waiting, ...stopped].forEach(item => {
+            liveMap.set(item.gid, item);
         });
         
-        liveDownloads.forEach(item => {
-            const existing = mergedMap.get(item.gid) || {};
-            mergedMap.set(item.gid, { ...existing, ...item });
-        });
+        let historyList = await callApi('/api/history').catch(() => []);
         
-        downloads = [];
-        const seen = new Set();
-        
-        historyList.forEach(hItem => {
-            if (mergedMap.has(hItem.gid)) {
-                downloads.push(mergedMap.get(hItem.gid));
-                seen.add(hItem.gid);
+        // Overlay fresh aria2 data on top of persisted history (history is source of truth for metadata)
+        downloads = historyList.map(hItem => {
+            const live = liveMap.get(hItem.gid);
+            if (live) {
+                return {
+                    ...hItem,
+                    status: live.status || hItem.status,
+                    completedLength: live.completedLength || hItem.completedLength,
+                    totalLength: live.totalLength || hItem.totalLength,
+                    downloadSpeed: live.downloadSpeed || 0,
+                    files: live.files || hItem.files,
+                    dir: live.dir || hItem.dir,
+                    numSeeders: live.numSeeders,
+                    connections: live.connections,
+                    uploadSpeed: live.uploadSpeed
+                };
             }
+            return { ...hItem, downloadSpeed: 0 };
         });
         
-        liveDownloads.forEach(lItem => {
-            if (!seen.has(lItem.gid)) {
-                downloads.push(lItem);
+        // Include any live items not yet in history (rare, timing window)
+        liveMap.forEach((live, gid) => {
+            if (!historyList.some(h => h.gid === gid)) {
+                downloads.push(live);
             }
         });
         
@@ -718,7 +740,8 @@ function renderDownloads() {
             const etaSeconds = speed === 0 ? 0 : Math.floor((total - completed) / speed);
 
             let filename = getFileName(d);
-            const isStreamable = completed > 200000 || d.status === 'complete';
+            const canStream = (d.status === 'complete' || completed > 200000) && isVideoFile(filename);
+            const canShowInFinder = d.status === 'complete' || (completed > 0 && d.files && d.files.length > 0);
             const showSpeed = d.status === 'active';
             const speedInner = showSpeed ? `Speed: ${formatBytes(speed)}/s <span class="eta">· ETA ${formatTime(etaSeconds)}</span>` : '';
 
@@ -739,14 +762,14 @@ function renderDownloads() {
                                 <span class="row-speed"${showSpeed ? '' : ' hidden'}>${speedInner}</span>
                             </div>
                         </div>
-                        <div class="row-actions" data-status="${d.status}" data-streamable="${isStreamable ? '1' : '0'}">
+                        <div class="row-actions" data-status="${d.status}" data-streamable="${canStream ? '1' : '0'}">
                             ${d.status === 'active'  ? `<button class="btn-icon-small" onclick="pauseDl('${d.gid}', event)" title="Pause">${iconPause}</button>` : ''}
                             ${d.status === 'paused'  ? `<button class="btn-icon-small" onclick="resumeDl('${d.gid}', event)" title="Resume">${iconPlay}</button>` : ''}
                             ${(d.status === 'active' || d.status === 'paused') ? `<button class="btn-icon-small" onclick="deleteDownload('${d.gid}', false, event)" title="Cancel">${iconCancel}</button>` : ''}
                             ${(d.status === 'complete' || d.status === 'error' || d.status === 'removed') ? `<button class="btn-icon-small" onclick="deleteDownload('${d.gid}', true, event)" title="Delete">${iconTrash}</button>` : ''}
                             ${(d.status === 'error' || d.status === 'removed') ? `<button class="btn-icon-small" style="color:var(--warning);" onclick="restartDl('${d.gid}', event)" title="Retry">${iconRestart}</button>` : ''}
-                            ${isStreamable ? `<button class="btn-icon-small" onclick="showInFinder('${d.gid}', event)" title="Show in Finder">${iconFolder}</button>` : ''}
-                            ${isStreamable ? `<button class="btn-stream" onclick="streamFile('${d.gid}', event)">▶ Stream</button>` : ''}
+                            ${canShowInFinder ? `<button class="btn-icon-small" onclick="showInFinder('${d.gid}', event)" title="Show in Finder">${iconFolder}</button>` : ''}
+                            ${canStream ? `<button class="btn-stream" onclick="streamFile('${d.gid}', event)">▶ Stream</button>` : ''}
                         </div>
                     </div>
                     <div class="row-progress-container">
@@ -771,7 +794,8 @@ function renderDownloads() {
             const etaSeconds = speed === 0 ? 0 : Math.floor((total - completed) / speed);
 
             let filename = getFileName(d);
-            const isStreamable = completed > 200000 || d.status === 'complete';
+            const canStream = (d.status === 'complete' || completed > 200000) && isVideoFile(filename);
+            const canShowInFinder = d.status === 'complete' || (completed > 0 && d.files && d.files.length > 0);
             const showSpeed = d.status === 'active';
             const speedInner = showSpeed ? `Speed: ${formatBytes(speed)}/s <span class="eta">· ETA ${formatTime(etaSeconds)}</span>` : '';
 
@@ -798,11 +822,10 @@ function renderDownloads() {
             }
 
             // 5. Rebuild row action buttons when status OR streamability changes.
-            //    (Streamability flips to true once the buffer threshold is crossed
-            //     mid-download, even though the status stays 'active' — so it must
-            //     be part of this check or the Stream button never appears.)
+            //    (canStream flips for video files once the buffer threshold is crossed
+            //     or when they complete.)
             const actionsContainer = row.querySelector('.row-actions');
-            const streamableFlag = isStreamable ? '1' : '0';
+            const streamableFlag = canStream ? '1' : '0';
             if (actionsContainer && (actionsContainer.dataset.status !== d.status || actionsContainer.dataset.streamable !== streamableFlag)) {
                 actionsContainer.innerHTML = `
                     ${d.status === 'active'  ? `<button class="btn-icon-small" onclick="pauseDl('${d.gid}', event)" title="Pause">${iconPause}</button>` : ''}
@@ -810,8 +833,8 @@ function renderDownloads() {
                     ${(d.status === 'active' || d.status === 'paused') ? `<button class="btn-icon-small" onclick="deleteDownload('${d.gid}', false, event)" title="Cancel">${iconCancel}</button>` : ''}
                     ${(d.status === 'complete' || d.status === 'error' || d.status === 'removed') ? `<button class="btn-icon-small" onclick="deleteDownload('${d.gid}', true, event)" title="Delete">${iconTrash}</button>` : ''}
                     ${(d.status === 'error' || d.status === 'removed') ? `<button class="btn-icon-small" style="color:var(--warning);" onclick="restartDl('${d.gid}', event)" title="Retry">${iconRestart}</button>` : ''}
-                    ${isStreamable ? `<button class="btn-icon-small" onclick="showInFinder('${d.gid}', event)" title="Show in Finder">${iconFolder}</button>` : ''}
-                    ${isStreamable ? `<button class="btn-stream" onclick="streamFile('${d.gid}', event)">▶ Stream</button>` : ''}
+                    ${canShowInFinder ? `<button class="btn-icon-small" onclick="showInFinder('${d.gid}', event)" title="Show in Finder">${iconFolder}</button>` : ''}
+                    ${canStream ? `<button class="btn-stream" onclick="streamFile('${d.gid}', event)">▶ Stream</button>` : ''}
                 `;
                 actionsContainer.dataset.status = d.status;
                 actionsContainer.dataset.streamable = streamableFlag;
@@ -979,8 +1002,10 @@ window.streamFile = async (gid, e) => {
     const d = downloads.find(x => x.gid === gid);
     if (!d) return;
     const filename = getFileName(d);
+    // Prefer the full path from aria2 data if available (avoids basename collisions across categories)
+    const filepath = d.files && d.files[0] && d.files[0].path ? d.files[0].path : null;
     try {
-        const data = await callApi('/api/stream', { filename });
+        const data = await callApi('/api/stream', { filename, filepath });
         if (data.error) alert('Error: ' + data.error);
     } catch(e) {
         alert('Failed to launch stream. Ensure the backend is running.');

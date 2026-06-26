@@ -11,7 +11,7 @@ Usage: ./run.sh [mode] [options]
 
 Modes:
   electron   Launch the Electron desktop app (default)
-  web        Run the Express backend + web UI (http://localhost:3000)
+  web        Run the Express backend + web UI (http://localhost:3000 or $PORT)
   tauri      Run the Tauri desktop app
 
 Options:
@@ -25,12 +25,23 @@ kill_port_listeners() {
   local pids
   pids=$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null || true)
   if [[ -n "$pids" ]]; then
-    echo "Stopping process(es) on port $port: $pids"
-    kill $pids 2>/dev/null || true
-    # If anything is still listening, force-kill.
-    pids=$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null || true)
-    if [[ -n "$pids" ]]; then
-      kill -9 $pids 2>/dev/null || true
+    local targets=()
+    for pid in $pids; do
+      local cmd
+      cmd=$(ps -p "$pid" -o comm= 2>/dev/null || true)
+      if [[ "$cmd" == *"node"* || "$cmd" == *"electron"* || "$cmd" == *"aria2c"* || -z "$cmd" ]]; then
+        targets+=("$pid")
+      else
+        echo "Skipping non-target PID $pid ($cmd) on port $port"
+      fi
+    done
+    if [[ ${#targets[@]} -gt 0 ]]; then
+      echo "Stopping process(es) on port $port: ${targets[*]}"
+      kill "${targets[@]}" 2>/dev/null || true
+      # force
+      for pid in "${targets[@]}"; do
+        kill -9 "$pid" 2>/dev/null || true
+      done
     fi
   fi
 }
@@ -83,8 +94,10 @@ if [[ ! -x "$ROOT_DIR/bin/aria2c" ]] && ! command -v aria2c >/dev/null 2>&1; the
 fi
 
 echo "Ensuring project ports are free..."
-kill_port_listeners 3000
-kill_port_listeners 6800
+WEB_P="${PORT:-${WEB_PORT:-3000}}"
+ARIA_P="${ARIA2_PORT:-6800}"
+kill_port_listeners "$WEB_P"
+kill_port_listeners "$ARIA_P"
 
 case "$MODE" in
   electron)

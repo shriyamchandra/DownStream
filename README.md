@@ -36,7 +36,7 @@ Flow:
 1. The UI runs inside the Tauri WebView.
 2. The frontend detects Tauri and uses `window.__TAURI__` to call native commands.
 3. The Tauri app exposes a tiny HTTP server for assets and a command-based API.
-4. `aria2c` is not started by Tauri, so it must already be running on port 6800.
+4. The Tauri backend starts its own `aria2c` instance (like Electron).
 
 ### Chrome extension
 
@@ -80,7 +80,7 @@ npx tauri dev
 ```
 
 Notes:
-- `aria2c` must be running separately on port 6800 when using Tauri.
+- No separate aria2c needed; Tauri launches it.
 - The Tauri config runs `npm run dev` before launching. If you want a different frontend dev server, update [src-tauri/tauri.conf.json](src-tauri/tauri.conf.json).
 
 ### Example `aria2c` command for Tauri

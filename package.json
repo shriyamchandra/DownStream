@@ -3,11 +3,12 @@
   "productName": "DownStream",
   "version": "1.0.0",
   "description": "DownStream — a download manager with streaming support",
-  "main": "main.js",
+  "main": "backend/main.js",
   "scripts": {
-    "dev": "node server.js",
+    "dev": "node backend/server.js",
     "start": "electron .",
-    "pack": "electron-builder"
+    "pack": "electron-builder",
+    "build": "echo 'No separate build step required (static frontend)'"
   },
   "build": {
     "appId": "com.downstream.app",
@@ -27,9 +28,8 @@
       }
     ],
     "files": [
-      "main.js",
-      "server.js",
-      "public/**/*",
+      "backend/**/*",
+      "frontend/**/*",
       "package.json"
     ]
   },
