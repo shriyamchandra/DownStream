@@ -161,7 +161,7 @@ module.exports = function historyRoutes({ rpc, history, config, pathGuard, activ
                 item.downloadSpeed = 0;
                 history.save();
                 
-                startYoutubeDownload(gid, item.urls[0], item.filename, item.formatId, item.chosenExt);
+                startYoutubeDownload(gid, item.urls[0], item.filename, item.formatId, item.chosenExt, item.referrer);
                 return res.json({ success: true, newGid: gid });
             } catch (e) {
                 console.error('[YouTube Retry] Failed to restart:', e);
@@ -271,7 +271,7 @@ module.exports = function historyRoutes({ rpc, history, config, pathGuard, activ
                 if (item) {
                     item.status = 'active';
                     history.save();
-                    startYoutubeDownload(gid, item.urls[0], item.filename, item.formatId, item.chosenExt);
+                    startYoutubeDownload(gid, item.urls[0], item.filename, item.formatId, item.chosenExt, item.referrer);
                 }
                 return res.json({ success: true });
             } else if (gid.startsWith('merged-') && activeMerges && activeMerges.has(gid)) {

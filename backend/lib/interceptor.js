@@ -133,21 +133,22 @@ module.exports = function createInterceptor({
                     urls: [url],
                     totalLength: 0,
                     completedLength: 0,
+                    downloadSpeed: 0,
                     status: 'active',
                     dir: config.data.downloadDir,
                     files: [{ path: path.join(config.data.downloadDir, cleanFilename) }],
                     category: 'Videos',
-                    downloadSpeed: 0,
                     addedDate: new Date().toISOString(),
                     completedDate: null,
                     errorMessage: '',
                     formatId,
-                    chosenExt
+                    chosenExt,
+                    referrer
                 };
                 history.items.unshift(newItem);
                 history.save();
                 
-                startYoutubeDownload(gid, url, cleanFilename, formatId, chosenExt);
+                startYoutubeDownload(gid, url, cleanFilename, formatId, chosenExt, referrer);
                 
                 return { success: true, queued: true };
             }
@@ -271,7 +272,21 @@ module.exports = function createInterceptor({
         if (cleanFilename) options.out = cleanFilename;
         if (referrer) options.referer = referrer;
         if (userAgent) options['user-agent'] = userAgent;
-        if (cookies) options.header = [`Cookie: ${cookies}`];
+
+        const customHeaders = [];
+        if (cookies) {
+            customHeaders.push(`Cookie: ${cookies}`);
+        }
+        if (referrer) {
+            customHeaders.push(`Referer: ${referrer}`);
+            try {
+                const originUrl = new URL(referrer);
+                customHeaders.push(`Origin: ${originUrl.origin}`);
+            } catch (err) {}
+        }
+        if (customHeaders.length > 0) {
+            options.header = customHeaders;
+        }
 
         const response = await rpc.call('addUri', [[url], options]);
         if (response.error) {

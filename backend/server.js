@@ -106,7 +106,7 @@ function getUniqueFilename(dir, baseName) {
     }
 }
 
-function startYoutubeDownload(gid, url, filename, formatId, chosenExt) {
+function startYoutubeDownload(gid, url, filename, formatId, chosenExt, referrer) {
     const item = history.items.find(x => x.gid === gid);
     if (!item) return;
 
@@ -143,6 +143,9 @@ function startYoutubeDownload(gid, url, filename, formatId, chosenExt) {
         '-o', outputTemplate,
         '-c'
     ];
+    if (referrer) {
+        args.push('--referer', referrer);
+    }
     if (config.appDataDir) {
         args.push('--cache-dir', path.join(config.appDataDir, 'yt-dlp-cache'));
     }
