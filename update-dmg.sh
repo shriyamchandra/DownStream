@@ -3,7 +3,7 @@
 # update-dmg.sh — Rebuild the packaged macOS app (.dmg) from current source.
 #
 # Runs electron-builder to produce a fresh dist/*.dmg that bundles the current
-# source (main.js, server.js, public/) and the self-contained bin/aria2c.
+# source (backend/ + frontend/ after the restructure) and the self-contained bin/aria2c.
 #
 # Usage:
 #   ./update-dmg.sh                 Build a fresh dist/*.dmg

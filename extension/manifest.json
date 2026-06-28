@@ -1,29 +1,46 @@
 {
   "manifest_version": 3,
-  "name": "DownStream Interceptor",
-  "version": "1.4",
-  "description": "Intercepts large files and dynamic downloads before the browser consumes single-use tokens.",
+  "name": "DownStream",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAx4gW+kwqu2NzG+6g+MrbZBLq2DK4oB3PCuUowlo1o/chI8WJMNxiCqEjKLTjUB9WzBaIpjRmqpgPzC3KNc7vgt9Ryj+fMVPT4/jWkhGbqXYIwRZUyr+R6HSIUq/u9bZ3vHzaPs/IS9QQdFIVvhlKJivjq31Diyk+F90DsX74raFQqmOrhbvC51DCGnCOVINphCXYT00mobpO5xdKgR17ak4ldnzTvC0MT5JAiNwK9JrKAyOmtyM9AM2Y9Y/D29jH/fEbRohLy2MQGzX96oNYukdAEDH7b6heYruAPwI75xKqO0FoN1/52uunF3cWkuQC17vg1JWHebenUOg3eP0a2QIDAQAB",
+  "version": "1.0.0",
+  "description": "Intercept downloads and send them to DownStream download manager",
   "permissions": [
     "downloads",
+    "contextMenus",
+    "activeTab",
     "storage",
+    "nativeMessaging",
     "cookies",
-    "webNavigation"
+    "webRequest"
   ],
   "host_permissions": [
-    "http://*/*",
-    "https://*/*"
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["content.js"],
-      "run_at": "document_start"
+      "matches": ["<all_urls>"],
+      "js": ["shared-constants.js", "content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
     }
   ],
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "externally_connectable": {
+    "matches": ["*://localhost/*"]
   }
 }

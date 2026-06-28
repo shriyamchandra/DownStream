@@ -3,7 +3,10 @@ import { callApi } from './api.js';
 import { state } from './state.js';
 import { applyTheme } from './theme.js';
 import { renderDownloads } from './render.js';
-import { refreshDownloads } from './downloads.js';
+import {
+    refreshDownloads, loadSettings,
+    toggleExpand, pauseDl, resumeDl, deleteDownload, restartDl, streamFile, showInFinder, setGlobalSpeedLimit
+} from './downloads.js';
 
 // Wire up all DOM event listeners. Called once on startup (DOM is ready because
 // the entry script is an ES module, which defers execution).
@@ -34,45 +37,77 @@ export function initEvents() {
     });
 
     // Save settings.
-    document.getElementById('saveSettingsBtn').addEventListener('click', async () => {
-        const preferredPlayer = document.getElementById('prefPlayer').value;
-        const downloadDir = document.getElementById('prefDir').value.trim();
-        const preferredTheme = document.getElementById('prefTheme').value;
-        try {
-            const data = await callApi('/api/settings', { preferredPlayer, downloadDir });
-            if (data.success) {
-                state.appConfig = data.config;
-                localStorage.setItem('appTheme', preferredTheme);
-                applyTheme(preferredTheme);
-                await client.call('changeGlobalOption', [{ dir: downloadDir }]);
-                alert('Settings saved successfully!');
+    const saveSettingsBtn = document.getElementById('saveSettingsBtn');
+    if (saveSettingsBtn) {
+        saveSettingsBtn.addEventListener('click', async () => {
+            if (saveSettingsBtn.disabled) return;
+            saveSettingsBtn.disabled = true;
+
+            const preferredPlayer = document.getElementById('prefPlayer').value;
+            const downloadDir = document.getElementById('prefDir').value.trim();
+            const youtubeCookiesBrowser = document.getElementById('prefCookiesBrowser').value;
+            const preferredTheme = document.getElementById('prefTheme').value;
+            try {
+                const data = await callApi('/api/settings', { preferredPlayer, downloadDir, youtubeCookiesBrowser });
+                if (data.success) {
+                    state.appConfig = data.config;
+                    localStorage.setItem('appTheme', preferredTheme);
+                    applyTheme(preferredTheme);
+                    await client.call('changeGlobalOption', [{ dir: downloadDir }]);
+                    alert('Settings saved successfully!');
+                }
+            } catch (e) {
+                alert('Failed to save settings.');
+            } finally {
+                saveSettingsBtn.disabled = false;
             }
-        } catch (e) {
-            alert('Failed to save settings.');
-        }
-    });
+        });
+    }
+
+    // Instant theme preview on change
+    const prefTheme = document.getElementById('prefTheme');
+    if (prefTheme) {
+        prefTheme.addEventListener('change', (e) => {
+            applyTheme(e.target.value);
+        });
+    }
 
     // Add URL(s).
-    document.getElementById('addBtn').addEventListener('click', async () => {
-        const text = document.getElementById('urlInput').value.trim();
-        const filename = document.getElementById('filenameInput').value.trim();
-        const category = document.getElementById('categorySelect').value;
-        if (!text) return;
+    const addBtn = document.getElementById('addBtn');
+    if (addBtn) {
+        addBtn.addEventListener('click', async () => {
+            if (addBtn.disabled) return;
+            addBtn.disabled = true;
 
-        const urls = text.split(/[\n,]+/).map(u => u.trim()).filter(u => u);
-        for (const url of urls) {
-            const options = {};
-            if (filename && urls.length === 1) options.out = filename;
-            if (category && state.appConfig.downloadDir) {
-                options.dir = `${state.appConfig.downloadDir}/${category}`;
+            const text = document.getElementById('urlInput').value.trim();
+            const filename = document.getElementById('filenameInput').value.trim();
+            const category = document.getElementById('categorySelect').value;
+            if (!text) {
+                addBtn.disabled = false;
+                return;
             }
-            await client.call('addUri', [[url], options]).catch(() => {});
-        }
 
-        document.getElementById('urlInput').value = '';
-        document.getElementById('filenameInput').value = '';
-        refreshDownloads();
-    });
+            const urls = text.split(/[\n,]+/).map(u => u.trim()).filter(u => u);
+            for (const url of urls) {
+                const options = {};
+                if (filename && urls.length === 1) options.out = filename;
+                if (category && state.appConfig.downloadDir) {
+                    options.dir = joinPaths(state.appConfig.downloadDir, category);
+                }
+                try {
+                    await client.call('addUri', [[url], options]);
+                } catch (err) {
+                    console.error('Failed to add URI:', err);
+                    alert(`Failed to add download URL: ${url}\nError: ${err.message || err}`);
+                }
+            }
+
+            document.getElementById('urlInput').value = '';
+            document.getElementById('filenameInput').value = '';
+            refreshDownloads();
+            addBtn.disabled = false;
+        });
+    }
 
     // Drag-and-drop .torrent support.
     const dropZone = document.getElementById('dropZone');
@@ -95,8 +130,13 @@ export function initEvents() {
                     const reader = new FileReader();
                     reader.onload = async (ev) => {
                         const base64Str = ev.target.result.split(',')[1];
-                        await client.call('addTorrent', [base64Str]);
-                        refreshDownloads();
+                        try {
+                            await client.call('addTorrent', [base64Str]);
+                            refreshDownloads();
+                        } catch (err) {
+                            console.error('Failed to add Torrent:', err);
+                            alert(`Failed to add torrent: ${err.message || err}`);
+                        }
                     };
                     reader.readAsDataURL(file);
                 } else {
@@ -109,13 +149,95 @@ export function initEvents() {
     // Toolbar: search, sort, clear history.
     document.getElementById('searchBar').addEventListener('input', renderDownloads);
     document.getElementById('sortSelect').addEventListener('change', renderDownloads);
-    document.getElementById('clearHistoryBtn').addEventListener('click', async () => {
-        if (!confirm('Are you sure you want to clear all completed, failed, and stopped downloads from your history list? This will NOT delete any completed files on your disk.')) return;
-        try {
-            const res = await callApi('/api/history/clear-completed');
-            if (res.success) refreshDownloads();
-        } catch (e) {
-            console.error('Failed to clear history', e);
-        }
-    });
+
+    const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+    if (clearHistoryBtn) {
+        clearHistoryBtn.addEventListener('click', async () => {
+            if (clearHistoryBtn.disabled) return;
+            if (!confirm('Are you sure you want to clear all completed, failed, and stopped downloads from your history list? This will NOT delete any completed files on your disk.')) return;
+
+            clearHistoryBtn.disabled = true;
+            try {
+                const res = await callApi('/api/history/clear-completed');
+                if (res.success) refreshDownloads();
+            } catch (e) {
+                console.error('Failed to clear history', e);
+            } finally {
+                clearHistoryBtn.disabled = false;
+            }
+        });
+    }
+
+    // Speed Limit change listener.
+    const speedLimitSelect = document.getElementById('speedLimitSelect');
+    if (speedLimitSelect) {
+        speedLimitSelect.addEventListener('change', async (e) => {
+            if (speedLimitSelect.disabled) return;
+            speedLimitSelect.disabled = true;
+            try {
+                await setGlobalSpeedLimit(e.target.value);
+            } catch (err) {
+                console.error('Failed to change speed limit:', err);
+            } finally {
+                speedLimitSelect.disabled = false;
+            }
+        });
+    }
+
+    // Event delegation for row actions inside the downloads list.
+    const downloadsList = document.getElementById('downloadsList');
+    if (downloadsList) {
+        downloadsList.addEventListener('click', async (e) => {
+            const targetAction = e.target.closest('[data-action]');
+            if (!targetAction) return;
+
+            const action = targetAction.getAttribute('data-action');
+            const gid = targetAction.getAttribute('data-gid');
+            if (!gid) return;
+
+            if (action === 'toggle-expand') {
+                toggleExpand(gid, e);
+                return;
+            }
+
+            // Rapid-clicking protection for buttons
+            const isButton = targetAction.tagName === 'BUTTON';
+            if (isButton) {
+                if (targetAction.disabled) return;
+                targetAction.disabled = true;
+            }
+
+            try {
+                if (action === 'pause') {
+                    await pauseDl(gid);
+                } else if (action === 'resume') {
+                    await resumeDl(gid);
+                } else if (action === 'delete') {
+                    const isHistorical = targetAction.getAttribute('data-historical') === 'true';
+                    await deleteDownload(gid, isHistorical);
+                } else if (action === 'restart') {
+                    await restartDl(gid);
+                } else if (action === 'show-in-finder') {
+                    await showInFinder(gid);
+                } else if (action === 'stream') {
+                    await streamFile(gid);
+                }
+            } catch (err) {
+                console.error(`Row action '${action}' failed:`, err);
+            } finally {
+                if (isButton) {
+                    targetAction.disabled = false;
+                }
+            }
+        });
+    }
+}
+
+function joinPaths(...segments) {
+    const sep = window.PATH_SEP || '/';
+    return segments
+        .map(s => String(s || '').trim())
+        .filter(Boolean)
+        .join(sep)
+        .replace(new RegExp('\\' + sep + '+', 'g'), sep);
 }

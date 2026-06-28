@@ -25,3 +25,7 @@ aria2.session
 
 # Local configuration files
 config.json
+
+# Project runtime state & temp files
+active-merges.json
+tempCodeRunnerFile.sh

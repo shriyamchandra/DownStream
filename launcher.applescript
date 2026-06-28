@@ -1,10 +1,15 @@
--- DownStream Web Launcher
--- This script launches the Node.js backend and opens the web browser automatically.
+-- DownStream Web Launcher (Electron mode)
+-- Launches the backend and opens the web UI.
+-- Supports the restructured frontend/ + backend/ layout.
+-- For custom ports: run from Terminal with PORT=3999 instead, or edit below.
 
-set projectDir to "/Users/shriyamchandra/aria2-streamer"
+-- Compute project directory relative to this script (works after moving the project)
+set projectDir to (POSIX path of (container of (path to me) as alias))
+
+-- Default server URL (change if you always use a custom port)
 set serverUrl to "http://localhost:3000"
 
--- Check if server is already running by pinging the port
+-- Check if server is already running
 try
 	set httpCode to do shell script "curl -s -o /dev/null -w \"%{http_code}\" " & serverUrl
 	if httpCode is "200" then
@@ -17,15 +22,11 @@ on error
 end try
 
 if not isRunning then
-	-- Start the backend server in a new Terminal window
+	-- Start using current structure (respects PORT env if you set it in the do script)
 	tell application "Terminal"
-		-- We open it in a terminal so you can easily close it when you're done downloading
-		do script "cd " & quoted form of projectDir & " && node server.js"
+		do script "cd " & quoted form of projectDir & " && node backend/server.js"
 	end tell
-	
-	-- Give the server 1.5 seconds to spin up
 	delay 1.5
 end if
 
--- Open the default web browser to the dashboard
 do shell script "open " & serverUrl

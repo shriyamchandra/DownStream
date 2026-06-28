@@ -18,7 +18,75 @@ const backend = require('./server.js');
 
 let mainWindow;
 
+const fs = require('fs');
+
+function setupNativeMessaging(app) {
+  try {
+    const homeDir = require('os').homedir();
+    const manifestFileName = 'com.downstream.interceptor.json';
+
+    let interceptorPath = '';
+    if (app.isPackaged) {
+      interceptorPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'native-host', 'interceptor');
+    } else {
+      interceptorPath = path.join(app.getAppPath(), 'native-host', 'interceptor');
+    }
+
+    try {
+      fs.chmodSync(interceptorPath, 0o755);
+    } catch (e) {}
+
+    const manifest = {
+      name: "com.downstream.interceptor",
+      description: "DownStream native messaging host for Chrome extension",
+      path: interceptorPath,
+      type: "stdio",
+      allowed_origins: [
+        "chrome-extension://egjdjkfddjpgakdgemjnfmdochggdelf",
+        "chrome-extension://hpbnhbgbllnkkdkhednecnkcpnkicmkp"
+      ]
+    };
+
+    const targetSubdirs = [
+      path.join('Google', 'Chrome', 'NativeMessagingHosts'),
+      path.join('BraveSoftware', 'Brave-Browser', 'NativeMessagingHosts'),
+      path.join('Microsoft Edge', 'NativeMessagingHosts'),
+      path.join('Chromium', 'NativeMessagingHosts')
+    ];
+
+    const manifestJson = JSON.stringify(manifest, null, 2);
+
+    targetSubdirs.forEach(subdir => {
+      const hostsDir = path.join(homeDir, 'Library', 'Application Support', subdir);
+      const targetPath = path.join(hostsDir, manifestFileName);
+      try {
+        // Skip write if the manifest already exists with identical content
+        if (fs.existsSync(targetPath)) {
+          const existing = fs.readFileSync(targetPath, 'utf8');
+          if (existing === manifestJson) return; // already up to date
+        }
+
+        if (!fs.existsSync(hostsDir)) {
+          fs.mkdirSync(hostsDir, { recursive: true });
+        }
+        fs.writeFileSync(targetPath, manifestJson, 'utf8');
+        console.log(`[Native Messaging] Registered host manifest in: ${targetPath}`);
+      } catch (e) {
+        // Silently skip browsers that aren't installed (ENOENT on parent dir)
+        if (e.code !== 'ENOENT') {
+          console.error(`[Native Messaging] Failed to write manifest for ${subdir}:`, e.message);
+        }
+      }
+    });
+  } catch (err) {
+    console.error('[Native Messaging] Registration failed:', err);
+  }
+}
+
 function createWindow() {
+  if (backend && typeof backend.startSync === 'function') {
+    backend.startSync(2500);
+  }
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 750,
@@ -28,6 +96,7 @@ function createWindow() {
       contextIsolation: true,
     },
   });
+  mainWindow.webContents.openDevTools();
 
   // Give the server a moment to boot up, then load the frontend
   const loadPort = process.env.PORT || process.env.WEB_PORT || 3000;
@@ -44,10 +113,14 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+    if (backend && typeof backend.stopSync === 'function') {
+      backend.stopSync();
+    }
   });
 }
 
 app.whenReady().then(() => {
+  setupNativeMessaging(app);
   createWindow();
 
   // Listen for intercepts from backend server to bring the window to the front
@@ -69,8 +142,34 @@ app.whenReady().then(() => {
 });
 
 // Handle downstream:// URL launched from Chrome extension (app already running)
-app.on('open-url', (event, url) => {
+app.on('open-url', (event, urlStr) => {
   event.preventDefault();
+
+  try {
+    const url = new URL(urlStr);
+    if (url.protocol === 'downstream:' && url.hostname === 'add') {
+      const params = Object.fromEntries(url.searchParams.entries());
+      // Trigger add using the backend's internal logic (no HTTP port needed)
+      if (backend && typeof backend.handleIntercept === 'function') {
+        backend.handleIntercept(params).catch(err => {
+          console.error('Failed to handle downstream add:', err);
+        });
+      }
+      // Focus window
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+      } else {
+        createWindow();
+      }
+      return;
+    }
+  } catch (e) {
+    // not an add url, fall through
+  }
+
+  // Default behavior: just focus the window (for downstream://open etc.)
   if (mainWindow) {
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.show();
@@ -81,9 +180,10 @@ app.on('open-url', (event, url) => {
 });
 
 app.on('window-all-closed', () => {
-  // Clean up and terminate backend processes (aria2c, etc.)
-  if (backend && typeof backend.cleanup === 'function') {
-    backend.cleanup();
+  // On macOS, keep app in dock but stop background sync timer to save CPU.
+  // On other platforms, quit the app completely.
+  if (backend && typeof backend.stopSync === 'function') {
+    backend.stopSync();
   }
   if (process.platform !== 'darwin') {
     app.quit();

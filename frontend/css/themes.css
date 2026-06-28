@@ -1,14 +1,5 @@
-/* ================================================================
-   themes.css — LAYER 2: Theme overrides
-   Single Responsibility: only token overrides. No layout or
-   component rules. Closed for modification; open for extension
-   (add .theme-ocean { ... } without touching existing themes).
-   ================================================================ */
-
 /* --- Light theme ------------------------------------------------- */
-/* Open/Closed: both OS-level pref and explicit .theme-light class
-   use the same values, declared once with :is() — DRY + single SoT. */
-:is(.theme-light, :root:not(.theme-dark):not(.theme-light)) {
+:root, .theme-light {
     --accent: #2563eb;
     --accent-hover: #1d4ed8;
     --accent-active: #1e40af;
@@ -62,14 +53,44 @@
     --shadow-lg: 0 16px 40px rgba(16, 24, 40, 0.16);
 }
 
-/* Registers color-scheme hint when OS prefers light & no explicit class */
-@media (prefers-color-scheme: light) {
-    :root:not(.theme-dark):not(.theme-light) {
-        color-scheme: light;
+/* --- Dark theme (applied on .theme-dark OR system prefers-color-scheme: dark) --- */
+@media (prefers-color-scheme: dark) {
+    :root:not(.theme-light) {
+        --accent: #3b82f6;
+        --accent-hover: #4c8ef7;
+        --accent-active: #2f6fe0;
+        --accent-soft: rgba(59, 130, 246, 0.14);
+        --accent-ring: rgba(59, 130, 246, 0.30);
+
+        --bg-body-color: #0f0f14;
+        --bg-app: #0f0f14;
+        --bg-sidebar: #121217;
+        --bg-toolbar: #121217;
+        --header-bg: #101015;
+        --bg-content: #0f0f14;
+        --bg-elevated: #1a1a21;
+        --bg-surface: #17171d;
+        --bg-card: #16161c;
+        --bg-card-hover: #1b1b22;
+        --bg-filter-bar: #111116;
+        --bg-filter-input: #17171d;
+
+        --border-subtle: rgba(255, 255, 255, 0.05);
+        --border-default: rgba(255, 255, 255, 0.08);
+        --border-strong: rgba(255, 255, 255, 0.14);
+        --divider: rgba(255, 255, 255, 0.06);
+
+        --text-primary: #e7e7ea;
+        --text-secondary: #9b9ba6;
+        --text-tertiary: #6e6e7a;
+        --text-muted: #515159;
+
+        --hover-bg: rgba(255, 255, 255, 0.045);
+        --active-bg: rgba(255, 255, 255, 0.07);
+        --progress-track: rgba(255, 255, 255, 0.07);
     }
 }
 
-/* --- Dark theme (explicit override) ------------------------------ */
 .theme-dark {
     --accent: #3b82f6;
     --accent-hover: #4c8ef7;

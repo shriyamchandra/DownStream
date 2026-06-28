@@ -1,0 +1,558 @@
+/* ═══════════════════════════════════════════════════════════════════
+   DownStream — Popup Styles
+   Warm-industrial dark UI, compact download cards with live
+   progress bars, category badges, and contextual actions.
+   ═══════════════════════════════════════════════════════════════════ */
+
+:root {
+  --bg:             #0f0f11;
+  --surface:        #1a1a1e;
+  --surface-raised: #222226;
+  --border:         rgba(255, 255, 255, 0.06);
+  --border-hover:   rgba(255, 255, 255, 0.1);
+
+  --accent:         #ff6b35;
+  --accent-dim:     rgba(255, 107, 53, 0.14);
+  --accent-glow:    rgba(255, 107, 53, 0.25);
+
+  --success:        #4ecdc4;
+  --success-dim:    rgba(78, 205, 196, 0.14);
+  --error:          #ef4444;
+  --error-dim:      rgba(239, 68, 68, 0.12);
+  --warning:        #f59e0b;
+
+  --text:           #f0ece4;
+  --text-secondary: #8a8680;
+  --text-dim:       #5a5855;
+
+  --radius-sm:      6px;
+  --radius-md:      10px;
+  --radius-lg:      14px;
+
+  --font:           -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  --mono:           "SF Mono", "Fira Code", "Cascadia Code", ui-monospace, monospace;
+}
+
+/* ── Reset & Base ─────────────────────────────────────────────── */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  width: 420px;
+  max-height: 540px;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  max-height: 540px;
+}
+
+/* ── Header ───────────────────────────────────────────────────── */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.brand-diamond {
+  color: var(--accent);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.brand-name {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  transition: background 0.3s ease;
+  flex-shrink: 0;
+}
+
+.status-dot.connected    { background: var(--success); box-shadow: 0 0 6px var(--success); }
+.status-dot.disconnected { background: var(--error); }
+
+.status-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.speed-badge {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent);
+  background: var(--accent-dim);
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  min-width: 58px;
+  text-align: center;
+}
+
+/* ── Sections ─────────────────────────────────────────────────── */
+
+.section {
+  padding: 0 12px;
+}
+
+.section + .section {
+  margin-top: 2px;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 4px 6px;
+}
+
+.section-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+.section-count {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  background: var(--surface);
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+
+/* ── Download List ────────────────────────────────────────────── */
+
+.dl-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 4px;
+}
+
+/* ── Download Card ────────────────────────────────────────────── */
+
+.dl-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  transition: border-color 0.2s ease, background 0.2s ease;
+  animation: cardIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.dl-card:hover {
+  border-color: var(--border-hover);
+  background: var(--surface-raised);
+}
+
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Row 1: filename + percentage */
+.dl-row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.dl-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.dl-cat {
+  font-size: 11px;
+  flex-shrink: 0;
+  width: 18px;
+  text-align: center;
+  filter: grayscale(0.15);
+}
+
+.dl-filename {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dl-pct {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  flex-shrink: 0;
+  min-width: 36px;
+  text-align: right;
+}
+
+.dl-pct.complete { color: var(--success); }
+.dl-pct.error    { color: var(--error); }
+
+/* Row 2: progress bar */
+.dl-progress-track {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 7px;
+}
+
+.dl-progress-bar {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 0.4s ease;
+  position: relative;
+}
+
+.dl-progress-bar.active {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(255, 255, 255, 0) 0px,
+    rgba(255, 255, 255, 0) 4px,
+    rgba(255, 255, 255, 0.1) 4px,
+    rgba(255, 255, 255, 0.1) 8px
+  );
+  background-size: 28px 28px;
+  animation: stripe 0.6s linear infinite;
+}
+
+.dl-progress-bar.complete {
+  background: var(--success);
+}
+
+.dl-progress-bar.error {
+  background: var(--error);
+}
+
+.dl-progress-bar.paused {
+  background: var(--warning);
+  opacity: 0.7;
+}
+
+@keyframes stripe {
+  from { background-position: 0 0; }
+  to   { background-position: 28px 0; }
+}
+
+/* Row 3: meta + actions */
+.dl-row-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dl-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  min-width: 0;
+}
+
+.dl-meta-sep {
+  color: var(--text-dim);
+  font-size: 9px;
+}
+
+.dl-speed {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent);
+}
+
+.dl-eta {
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.dl-status-text {
+  font-size: 11px;
+}
+
+.dl-status-text.complete { color: var(--success); }
+.dl-status-text.error    { color: var(--error); }
+
+.dl-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+/* ── Action Buttons ───────────────────────────────────────────── */
+
+.dl-btn {
+  all: unset;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.12s ease, color 0.12s ease;
+  color: var(--text-dim);
+}
+
+.dl-btn:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+}
+
+.dl-btn:active {
+  transform: scale(0.9);
+}
+
+.dl-btn--stream {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.dl-btn--stream:hover {
+  background: var(--accent-dim);
+}
+
+.dl-btn--retry {
+  color: var(--warning);
+}
+
+.dl-btn--retry:hover {
+  background: rgba(245, 158, 11, 0.12);
+}
+
+.dl-btn--cancel:hover {
+  background: var(--error-dim);
+  color: var(--error);
+}
+
+.dl-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ── Empty / Offline States ───────────────────────────────────── */
+
+.empty, .offline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 36px 24px;
+  text-align: center;
+}
+
+.empty[hidden], .offline[hidden] {
+  display: none !important;
+}
+
+.empty-icon {
+  font-size: 28px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+  opacity: 0.5;
+}
+
+.empty-title, .offline-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.empty-hint, .offline-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+  max-width: 260px;
+  line-height: 1.6;
+}
+
+.offline-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--error);
+  margin-bottom: 10px;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.3; }
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 11px;
+  background: var(--surface);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--accent);
+}
+
+/* ── Footer ───────────────────────────────────────────────────── */
+
+.footer {
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--border);
+  margin-top: auto;
+}
+
+.footer-btn {
+  all: unset;
+  display: block;
+  width: 100%;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.footer-btn:hover {
+  color: var(--text);
+  background: var(--surface);
+}
+
+/* ── Scrollbar ────────────────────────────────────────────────── */
+
+#app::-webkit-scrollbar        { width: 5px; }
+#app::-webkit-scrollbar-track   { background: transparent; }
+#app::-webkit-scrollbar-thumb   { background: rgba(255,255,255,0.08); border-radius: 3px; }
+#app::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.14); }
+
+/* ── Category Badge Colors ────────────────────────────────────── */
+
+.cat-Videos    { color: #f472b6; }
+.cat-Audio     { color: #a78bfa; }
+.cat-Documents { color: #60a5fa; }
+.cat-Archives  { color: #fbbf24; }
+.cat-Images    { color: #34d399; }
+.cat-Software  { color: #fb923c; }
+.cat-Other     { color: var(--text-dim); }
+
+/* ── Stream Quality Selector & Progress (sidebar) ─────────────── */
+
+.quality-selector {
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.quality-chooser {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.quality-chooser label {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.quality-chooser select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+.chooser-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.stream-progress {
+  margin-top: 6px;
+}
+
+.progress-label {
+  font-size: 11px;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+
+.progress-bar {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-bar.indeterminate::after {
+  content: '';
+  position: absolute;
+  left: -50%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--accent),
+    transparent
+  );
+  animation: stream-indeterminate 1.1s linear infinite;
+}
+
+@keyframes stream-indeterminate {
+  0% { left: -50%; }
+  100% { left: 100%; }
+}
+
+.dl-card.streaming {
+  opacity: 0.95;
+}

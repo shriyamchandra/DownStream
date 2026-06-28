@@ -17,14 +17,28 @@ module.exports = function createHistoryStore(config) {
         fs.writeFileSync(historyPath, JSON.stringify(items, null, 4));
     }
 
-    function save() {
+    let isSaving = false;
+    let pendingSave = false;
+
+    async function save() {
+        if (isSaving) {
+            pendingSave = true;
+            return;
+        }
+        isSaving = true;
         try {
             const serializable = items.map(item => ({ ...item, downloadSpeed: 0 }));
             const tmpPath = historyPath + '.tmp';
-            fs.writeFileSync(tmpPath, JSON.stringify(serializable, null, 4));
-            fs.renameSync(tmpPath, historyPath);
+            await fs.promises.writeFile(tmpPath, JSON.stringify(serializable, null, 4), 'utf8');
+            await fs.promises.rename(tmpPath, historyPath);
         } catch (e) {
             console.error('Failed to save history:', e);
+        } finally {
+            isSaving = false;
+            if (pendingSave) {
+                pendingSave = false;
+                setImmediate(save);
+            }
         }
     }
 

@@ -28,7 +28,8 @@ function createConfig() {
 
     const data = {
         preferredPlayer: 'vlc',
-        downloadDir: path.join(process.env.HOME, 'Downloads', 'DownStream')
+        downloadDir: path.join(process.env.HOME, 'Downloads', 'DownStream'),
+        youtubeCookiesBrowser: ''
     };
 
     if (fs.existsSync(configPath)) {
@@ -54,6 +55,9 @@ function createConfig() {
         if (patch.downloadDir) {
             data.downloadDir = path.resolve(patch.downloadDir);
             if (!fs.existsSync(data.downloadDir)) fs.mkdirSync(data.downloadDir, { recursive: true });
+        }
+        if (patch.youtubeCookiesBrowser !== undefined) {
+            data.youtubeCookiesBrowser = patch.youtubeCookiesBrowser;
         }
         save();
         return data;

@@ -2,39 +2,63 @@ const { spawn, execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
-// Free a port by killing the process listening on it — but only if it looks like
-// one of ours (node/electron/aria2c), so we don't kill an unrelated service.
-function freePort(port) {
+function cleanPreviousInstance(config) {
+    const pidFilePath = path.join(config.appDataDir, 'pids.json');
+    if (!fs.existsSync(pidFilePath)) return;
+
     try {
-        const pids = execSync(`lsof -t -i:${port}`).toString().trim().split('\n').filter(Boolean);
-        if (pids.length === 0) return;
+        const pids = JSON.parse(fs.readFileSync(pidFilePath, 'utf8'));
+        
+        // Attempt clean shutdown first (SIGTERM)
+        if (pids.backend) {
+            try { process.kill(parseInt(pids.backend, 10), 'SIGTERM'); } catch (e) {}
+        }
+        if (pids.aria2) {
+            try { process.kill(parseInt(pids.aria2, 10), 'SIGTERM'); } catch (e) {}
+        }
 
-        const targets = [];
-        pids.forEach(pid => {
-            try {
-                const cmd = execSync(`ps -p ${pid} -o comm= 2>/dev/null || true`).toString().trim();
-                if (cmd.includes('node') || cmd.includes('electron') || cmd.includes('aria2c') || cmd === '') {
-                    targets.push(pid);
-                } else {
-                    console.log(`[Port Cleaner] Skipping non-target PID ${pid} (${cmd}) on port ${port}`);
-                }
-            } catch (e) {
-                targets.push(pid); // if ps fails, be conservative
+        // Wait up to 500ms for graceful shutdown
+        let start = Date.now();
+        while (Date.now() - start < 500) {
+            let backendAlive = false;
+            let ariaAlive = false;
+            if (pids.backend) {
+                try { process.kill(parseInt(pids.backend, 10), 0); backendAlive = true; } catch (e) {}
             }
-        });
+            if (pids.aria2) {
+                try { process.kill(parseInt(pids.aria2, 10), 0); ariaAlive = true; } catch (e) {}
+            }
+            if (!backendAlive && !ariaAlive) break;
+        }
 
-        if (targets.length > 0) {
-            console.log(`[Port Cleaner] Port ${port} cleaning targets: ${targets.join(', ')}`);
-            targets.forEach(pid => {
-                try {
-                    process.kill(parseInt(pid), 'SIGKILL');
-                } catch (err) {
-                    try { execSync(`kill -9 ${pid}`); } catch (e) {}
-                }
-            });
+        // Force kill SIGKILL if still running
+        if (pids.backend) {
+            try {
+                process.kill(parseInt(pids.backend, 10), 0);
+                process.kill(parseInt(pids.backend, 10), 'SIGKILL');
+            } catch (e) {}
+        }
+        if (pids.aria2) {
+            try {
+                process.kill(parseInt(pids.aria2, 10), 0);
+                process.kill(parseInt(pids.aria2, 10), 'SIGKILL');
+            } catch (e) {}
         }
     } catch (e) {
-        // Port is free or lsof command failed/returned empty.
+        console.error('[PID Manager] Error cleaning up previous instance PIDs:', e);
+    }
+
+    try {
+        fs.unlinkSync(pidFilePath);
+    } catch (e) {}
+}
+
+function recordPids(config, backendPid, aria2Pid) {
+    const pidFilePath = path.join(config.appDataDir, 'pids.json');
+    try {
+        fs.writeFileSync(pidFilePath, JSON.stringify({ backend: backendPid, aria2: aria2Pid }));
+    } catch (e) {
+        console.error('[PID Manager] Failed to write pids.json:', e);
     }
 }
 
@@ -57,11 +81,39 @@ function locateAria2c(projectRoot) {
 // Manages the aria2c daemon lifecycle (port cleanup, spawn, graceful shutdown).
 module.exports = function createProcessManager(config) {
     let ariaProcess = null;
+    let isShuttingDown = false;
+    let restartAttempts = 0;
+    const MAX_RESTART_ATTEMPTS = 5;
+    const BASE_RESTART_DELAY_MS = 1000;
 
-    function start() {
+    // Non-blocking port wait: polls with setTimeout instead of blocking the event loop.
+    function waitForPortFree(port, timeoutMs) {
+        return new Promise(resolve => {
+            const deadline = Date.now() + timeoutMs;
+            function check() {
+                try {
+                    execSync(`lsof -i :${port}`, { stdio: 'ignore' });
+                    // Port still in use — try again if we have time
+                    if (Date.now() < deadline) {
+                        setTimeout(check, 100);
+                    } else {
+                        resolve(); // timed out, proceed anyway
+                    }
+                } catch (e) {
+                    resolve(); // lsof returned non-zero → port is free
+                }
+            }
+            check();
+        });
+    }
+
+    async function start() {
+        isShuttingDown = false;
         // Free our ports first so a stale instance can't block startup.
-        freePort(config.webPort);
-        freePort(config.aria2Port);
+        cleanPreviousInstance(config);
+
+        // Wait up to 2 seconds for port to become free (non-blocking)
+        await waitForPortFree(config.aria2Port, 2000);
 
         const aria2cPath = locateAria2c(config.projectRoot);
         const args = [
@@ -83,18 +135,60 @@ module.exports = function createProcessManager(config) {
         console.log(`Starting aria2c: ${aria2cPath} ${args.join(' ')}`);
         ariaProcess = spawn(aria2cPath, args, { stdio: 'inherit' });
 
+        // Record our current PIDs
+        recordPids(config, process.pid, ariaProcess.pid);
+
         ariaProcess.on('error', (err) => {
             console.error('Failed to start aria2c. Make sure it is installed (brew install aria2).', err);
         });
+
         ariaProcess.on('exit', (code, signal) => {
-            console.error(`aria2c exited unexpectedly (code=${code}, signal=${signal}). Downloads will stop working until restart.`);
+            if (isShuttingDown) {
+                console.log('aria2c process exited gracefully on cleanup.');
+                return;
+            }
+
+            restartAttempts++;
+            if (restartAttempts > MAX_RESTART_ATTEMPTS) {
+                console.error(
+                    `aria2c has crashed ${restartAttempts} times. Giving up auto-restart. ` +
+                    `Fix the underlying issue and relaunch the app.`
+                );
+                return;
+            }
+
+            const delay = Math.min(BASE_RESTART_DELAY_MS * Math.pow(2, restartAttempts - 1), 30000);
+            console.error(
+                `aria2c exited unexpectedly (code=${code}, signal=${signal}). ` +
+                `Restart attempt ${restartAttempts}/${MAX_RESTART_ATTEMPTS} in ${delay}ms...`
+            );
+            setTimeout(() => {
+                if (!isShuttingDown) {
+                    start().catch(err => {
+                        console.error('Failed to restart aria2c:', err);
+                    });
+                }
+            }, delay);
         });
+
+        // Reset the restart counter after aria2 has been running stably for 30s
+        setTimeout(() => {
+            if (ariaProcess && !ariaProcess.killed && !isShuttingDown) {
+                restartAttempts = 0;
+            }
+        }, 30000);
 
         return ariaProcess;
     }
 
     function cleanup() {
+        isShuttingDown = true;
         console.log('Cleaning up aria2c process...');
+        const pidFilePath = path.join(config.appDataDir, 'pids.json');
+        try {
+            fs.unlinkSync(pidFilePath);
+        } catch (e) {}
+
         if (!ariaProcess) return;
         try {
             ariaProcess.kill('SIGINT');
@@ -107,5 +201,5 @@ module.exports = function createProcessManager(config) {
         }
     }
 
-    return { start, cleanup, freePort };
+    return { start, cleanup };
 };

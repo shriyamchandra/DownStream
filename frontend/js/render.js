@@ -1,4 +1,5 @@
 import { state } from './state.js';
+import { STREAM_BUFFER_THRESHOLD } from './shared-constants.js';
 import {
     escapeHtml, formatBytes, formatTime, getFileName, isVideoFile,
     getStatusClass, getStatusText, getFileIconClass, getFileIconText,
@@ -119,13 +120,13 @@ export function getDetailsHtml(d) {
 // Build the action-button cluster for a download row.
 function actionsHtml(d, canStream, canShowInFinder) {
     return `
-        ${d.status === 'active' ? `<button class="btn-icon-small" onclick="pauseDl('${d.gid}', event)" title="Pause">${iconPause}</button>` : ''}
-        ${d.status === 'paused' ? `<button class="btn-icon-small" onclick="resumeDl('${d.gid}', event)" title="Resume">${iconPlay}</button>` : ''}
-        ${(d.status === 'active' || d.status === 'paused') ? `<button class="btn-icon-small" onclick="deleteDownload('${d.gid}', false, event)" title="Cancel">${iconCancel}</button>` : ''}
-        ${(d.status === 'complete' || d.status === 'error' || d.status === 'removed') ? `<button class="btn-icon-small" onclick="deleteDownload('${d.gid}', true, event)" title="Delete">${iconTrash}</button>` : ''}
-        ${(d.status === 'error' || d.status === 'removed') ? `<button class="btn-icon-small" style="color:var(--warning);" onclick="restartDl('${d.gid}', event)" title="Retry">${iconRestart}</button>` : ''}
-        ${canShowInFinder ? `<button class="btn-icon-small" onclick="showInFinder('${d.gid}', event)" title="Show in Finder">${iconFolder}</button>` : ''}
-        ${canStream ? `<button class="btn-stream" onclick="streamFile('${d.gid}', event)">▶ Stream</button>` : ''}
+        ${d.status === 'active' ? `<button class="btn-icon-small" data-action="pause" data-gid="${d.gid}" title="Pause">${iconPause}</button>` : ''}
+        ${d.status === 'paused' ? `<button class="btn-icon-small" data-action="resume" data-gid="${d.gid}" title="Resume">${iconPlay}</button>` : ''}
+        ${(d.status === 'active' || d.status === 'paused' || d.status === 'merging') ? `<button class="btn-icon-small" data-action="delete" data-gid="${d.gid}" data-historical="false" title="Cancel">${iconCancel}</button>` : ''}
+        ${(d.status === 'complete' || d.status === 'error' || d.status === 'removed') ? `<button class="btn-icon-small" data-action="delete" data-gid="${d.gid}" data-historical="true" title="Delete">${iconTrash}</button>` : ''}
+        ${(d.status === 'error' || d.status === 'removed') ? `<button class="btn-icon-small" style="color:var(--warning);" data-action="restart" data-gid="${d.gid}" title="Retry">${iconRestart}</button>` : ''}
+        ${canShowInFinder ? `<button class="btn-icon-small" data-action="show-in-finder" data-gid="${d.gid}" title="Show in Finder">${iconFolder}</button>` : ''}
+        ${canStream ? `<button class="btn-stream" data-action="stream" data-gid="${d.gid}">▶ Stream</button>` : ''}
     `;
 }
 
@@ -134,7 +135,7 @@ function getFilteredDownloads() {
     let list = state.downloads;
 
     if (state.currentFilter === 'active') {
-        list = list.filter(d => d.status === 'active' || d.status === 'waiting' || d.status === 'paused');
+        list = list.filter(d => d.status === 'active' || d.status === 'waiting' || d.status === 'paused' || d.status === 'merging');
     } else if (state.currentFilter === 'complete') {
         list = list.filter(d => d.status === 'complete');
     } else if (state.currentFilter === 'failed') {
@@ -200,7 +201,7 @@ export function renderDownloads() {
             const etaSeconds = speed === 0 ? 0 : Math.floor((total - completed) / speed);
 
             const filename = getFileName(d);
-            const canStream = (d.status === 'complete' || completed > 200000) && isVideoFile(filename);
+            const canStream = (d.status === 'complete' || completed > STREAM_BUFFER_THRESHOLD) && isVideoFile(filename);
             const canShowInFinder = d.status === 'complete' || (completed > 0 && d.files && d.files.length > 0);
             const showSpeed = d.status === 'active';
             const speedInner = showSpeed ? `Speed: ${formatBytes(speed)}/s <span class="eta">· ETA ${formatTime(etaSeconds)}</span>` : '';
@@ -209,7 +210,7 @@ export function renderDownloads() {
             const detailsHtml = isExpanded ? getDetailsHtml(d) : '';
 
             html += `
-                <div class="download-row ${isExpanded ? 'expanded' : ''}" id="dl-${d.gid}" onclick="toggleExpand('${d.gid}', event)">
+                <div class="download-row ${isExpanded ? 'expanded' : ''}" id="dl-${d.gid}" data-action="toggle-expand" data-gid="${d.gid}">
                     <div class="row-top">
                         <div class="file-icon ${getFileIconClass(filename)}">
                             ${getFileIconText(filename)}

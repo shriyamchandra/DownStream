@@ -11,8 +11,8 @@ Usage: ./run.sh [mode] [options]
 
 Modes:
   electron   Launch the Electron desktop app (default)
-  web        Run the Express backend + web UI (http://localhost:3000 or $PORT)
-  tauri      Run the Tauri desktop app
+  web        Run the Express backend + web UI (respects $PORT)
+  # tauri mode removed from active support (see BUG_REPORT.md)
 
 Options:
   --no-install    Skip npm install even if node_modules is missing
@@ -108,12 +108,13 @@ case "$MODE" in
     echo "Starting backend + web UI..."
     (cd "$ROOT_DIR" && npm run dev)
     ;;
-  tauri)
-    echo "Starting Tauri app..."
-    (cd "$ROOT_DIR" && npx tauri dev)
-    ;;
+  # tauri)
+  #   echo "Starting Tauri app..."
+  #   (cd "$ROOT_DIR" && npx tauri dev)
+  #   ;;
   *)
     echo "Unsupported mode: $MODE"
+    echo "Usage: $0 [electron|web]"
     exit 1
     ;;
 esac

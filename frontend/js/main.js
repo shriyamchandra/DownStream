@@ -5,18 +5,22 @@ import { client } from './transport.js';
 import { callApi } from './api.js';
 import { state } from './state.js';
 import { getFileName } from './format.js';
-import { refreshDownloads, loadSettings, registerActions } from './downloads.js';
+import { refreshDownloads, loadSettings } from './downloads.js';
 import { initEvents } from './events.js';
 
 initTheme();
-registerActions();
 initEvents();
+
+let refreshInterval = null;
 
 // On (re)connect, load settings, render once, then poll for live updates.
 client.onConnect = () => {
     loadSettings();
     refreshDownloads();
-    setInterval(refreshDownloads, 1000);
+    if (refreshInterval) {
+        clearInterval(refreshInterval);
+    }
+    refreshInterval = setInterval(refreshDownloads, 1000);
 };
 
 // Push notifications from aria2 — refresh immediately, and toast on completion.
@@ -35,3 +39,10 @@ client.onMessage = async (data) => {
         }
     }
 };
+
+window.addEventListener('beforeunload', () => {
+    if (refreshInterval) {
+        clearInterval(refreshInterval);
+        refreshInterval = null;
+    }
+});

@@ -1,68 +1,91 @@
 # DownStream
 
-DownStream is a desktop download manager built on top of `aria2c` with a local web UI, streaming shortcuts, and an optional Chrome extension that intercepts large downloads. It supports two runtime modes: an Electron app with an embedded Express backend, and a Tauri app that uses native commands for the same API surface.
+A desktop download manager for macOS powered by [aria2](https://aria2.github.io/). It wraps `aria2c` in an Electron shell with a local web UI, real-time progress tracking, in-app media streaming, and a Chrome extension that intercepts browser downloads before single-use tokens expire.
+
+![Platform](https://img.shields.io/badge/platform-macOS-blue)
+![Electron](https://img.shields.io/badge/electron-42-blue)
+![License](https://img.shields.io/badge/license-ISC-green)
+
+---
 
 ## Features
 
-- Local web UI for adding URLs, magnet links, and .torrent files
-- Real-time download list with pause/resume/cancel/retry
-- Stream a file once it has buffered (macOS `open` integration)
-- Open downloaded files in Finder
-- Global speed limit presets
-- User settings for preferred player and download directory
-- Chrome extension to intercept browser downloads and send them to the app
+- **Multi-protocol downloads** — HTTP, HTTPS, FTP, magnet links, and `.torrent` files via aria2's engine (16 connections per download)
+- **Real-time dashboard** — live progress bars, speed graph, pause / resume / cancel / retry per download
+- **Stream before complete** — open partially downloaded media in VLC, IINA, or QuickTime once enough has buffered
+- **Category folders** — automatic file-type detection organises downloads into subfolders (Video, Audio, Documents, etc.)
+- **Chrome extension** — intercepts large file downloads in the browser and sends them to DownStream before the server's download token is consumed
+- **Native Messaging** — compiled C bridge between Chrome and the app (no Node.js runtime needed in the host); falls back to `downstream://` custom protocol
+- **Dark / light theme** — auto-follows system preference, or manual toggle
+- **Speed presets** — one-click global bandwidth limits
+- **macOS notifications** — desktop alerts when downloads are captured or completed
+- **Portable packaging** — ships as a self-contained `.dmg` with a bundled `aria2c` binary (no Homebrew needed)
+
+---
 
 ## Architecture
 
-### Electron + Express backend
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  Electron Main Process  (backend/main.js)                        │
+│    ├── Registers downstream:// custom protocol                   │
+│    ├── Installs Native Messaging manifests for Chrome/Brave/Edge │
+│    └── Opens BrowserWindow → http://localhost:PORT               │
+├──────────────────────────────────────────────────────────────────┤
+│  Express Backend  (backend/server.js)                            │
+│    ├── REST API  (/api/*)                                        │
+│    ├── Static file server for frontend/                          │
+│    ├── aria2c process manager (spawn, health check, restart)     │
+│    ├── History sync service (aria2 ↔ history.json every 2.5s)    │
+│    └── Intercept handler (queues URLs until aria2 is ready)      │
+├──────────────────────────────────────────────────────────────────┤
+│  aria2c  (RPC on port 6800)                                      │
+│    └── Stateless JSON-RPC over HTTP POST                         │
+├──────────────────────────────────────────────────────────────────┤
+│  Frontend  (frontend/)                                           │
+│    ├── Vanilla HTML + modular ES6 JS                             │
+│    ├── WebSocket to aria2c for live download events              │
+│    ├── Layered CSS (tokens → themes → layout → components)       │
+│    └── Event-delegated UI (no inline onclick handlers)           │
+├──────────────────────────────────────────────────────────────────┤
+│  Chrome Extension  (extension/)                                  │
+│    ├── Service worker captures downloads via 3 strategies        │
+│    │   (downloads API, navigation intercept, content script)     │
+│    ├── Native Messaging → C host → curl → /api/intercept        │
+│    └── Fallback: downstream:// protocol launch                   │
+├──────────────────────────────────────────────────────────────────┤
+│  Native Messaging Host  (native-host/)                           │
+│    └── Compiled C binary — reads Chrome stdio, POSTs to Express  │
+└──────────────────────────────────────────────────────────────────┘
+```
 
-- Electron entrypoint: [backend/main.js](backend/main.js)
-- Backend server: [backend/server.js](backend/server.js)
-- Frontend assets: [frontend/index.html](frontend/index.html) and [frontend/js/main.js](frontend/js/main.js)
+### Data flow: Chrome → DownStream
 
-Flow:
-1. Electron starts and requires the backend server.
-2. Express serves the UI on http://localhost:3000 and spawns `aria2c` on port 6800.
-3. The UI talks to `aria2c` via WebSocket JSON-RPC (ws://127.0.0.1:6800/jsonrpc).
-4. The Chrome extension sends intercepted downloads to the backend at /api/intercept.
+1. User clicks a download link in Chrome
+2. Extension captures the URL, filename, cookies, referrer, and user-agent
+3. Sends payload via **Chrome Native Messaging** (stdio → C binary → `curl POST /api/intercept`)
+4. If Native Messaging fails, falls back to `downstream://add?url=...&filename=...` custom protocol
+5. Express backend calls `aria2.addUri()` via JSON-RPC
+6. Frontend picks up the new download on the next sync cycle
 
-### Tauri backend
-
-- Tauri entrypoint: [src-tauri/src/main.rs](src-tauri/src/main.rs)
-- Commands and embedded server: [src-tauri/src/lib.rs](src-tauri/src/lib.rs)
-- Tauri config: [src-tauri/tauri.conf.json](src-tauri/tauri.conf.json)
-
-Flow:
-1. The UI runs inside the Tauri WebView.
-2. The frontend detects Tauri and uses `window.__TAURI__` to call native commands.
-3. The Tauri app exposes a tiny HTTP server for assets and a command-based API.
-4. The Tauri backend starts its own `aria2c` instance (like Electron).
-
-### Chrome extension
-
-- Extension source: [extension/manifest.json](extension/manifest.json)
-- Background logic: [extension/background.js](extension/background.js)
-- Content script: [extension/content.js](extension/content.js)
-
-The extension intercepts downloads and POSTs them to http://localhost:3000/api/intercept. If the app is not running, it opens the custom protocol `downstream://` to launch the Electron app and retries.
+---
 
 ## Requirements
 
-- Node.js (LTS recommended)
-- `aria2c` available in PATH, or bundled at [bin/aria2c](bin/aria2c)
-- macOS is required for native player launching and notifications (uses `open` and `osascript`)
+- **macOS** (tested on 13+)
+- **Node.js** 18+ (LTS recommended)
+- **aria2c** — bundled at `bin/aria2c` for packaged builds; install via `brew install aria2` for development
 
-For Tauri builds:
-- Rust 1.77+ and the Tauri CLI (`@tauri-apps/cli`)
+---
 
-## Quick start (Electron)
+## Quick Start
+
+### Electron app (recommended)
 
 ```bash
 npm install
 npm start
 ```
-
-This launches Electron, starts the Express backend, and opens the UI.
 
 ### Web UI only (no Electron shell)
 
@@ -70,75 +93,180 @@ This launches Electron, starts the Express backend, and opens the UI.
 npm run dev
 ```
 
-Then open http://localhost:3000 in a browser.
-
-## Tauri development
+Or with custom ports:
 
 ```bash
-npm install
-npx tauri dev
+PORT=3999 ARIA2_PORT=6801 npm run dev
 ```
 
-Notes:
-- No separate aria2c needed; Tauri launches it.
-- The Tauri config runs `npm run dev` before launching. If you want a different frontend dev server, update [src-tauri/tauri.conf.json](src-tauri/tauri.conf.json).
+Then open `http://localhost:3999` in a browser.
 
-### Example `aria2c` command for Tauri
+### Build & install the .app bundle
 
 ```bash
-aria2c --enable-rpc=true --rpc-listen-all=true --rpc-allow-origin-all=true --rpc-listen-port=6800
+./update-dmg.sh --install        # Build .dmg and copy to /Applications
+./update-dmg.sh --install --run  # Build, install, and launch
 ```
 
-## Chrome extension setup
+---
 
-1. Open Chrome and go to chrome://extensions.
-2. Enable Developer mode.
-3. Click "Load unpacked" and select the [extension](extension) folder.
-4. Make sure the app is running on http://localhost:3000.
+## Chrome Extension Setup
+
+1. Open `chrome://extensions` in Chrome, Brave, or Edge
+2. Enable **Developer mode**
+3. Click **Load unpacked** and select the `extension/` folder
+4. The app registers Native Messaging manifests automatically on launch — no manual configuration needed
+5. Click the extension popup to enable/disable interception
+
+The extension works with **any port** — the C native host reads the port from `~/Library/Application Support/DownStream/server-info.json` at runtime.
+
+---
 
 ## Configuration
 
-The app stores settings in a local `config.json` file:
+Settings are stored in `~/Library/Application Support/DownStream/config.json` (Electron) or `backend/config.json` (dev mode).
 
 ```json
 {
-  "preferredPlayer": "vlc",
-  "downloadDir": "/Users/you/Downloads/DownStream"
+    "preferredPlayer": "vlc",
+    "downloadDir": "/Users/you/Downloads/DownStream"
 }
 ```
 
-- In Electron, the config is stored under the Electron user data directory.
-- In plain `node server.js` dev mode, it uses the project directory.
-- In Tauri, it uses the app config directory.
+### Environment variables
 
-Session persistence is stored in `aria2.session` alongside the config.
+| Variable | Default | Purpose |
+|---|---|---|
+| `PORT` / `WEB_PORT` | `3000` | Express server port |
+| `ARIA2_PORT` | `6800` | aria2 JSON-RPC port |
 
-## HTTP API (Electron backend)
+---
 
-All endpoints are served from http://localhost:3000.
+## HTTP API
+
+All endpoints are served from the Express server (default `http://localhost:3000`).
 
 | Method | Path | Purpose |
-| --- | --- | --- |
-| GET | /api/settings | Read current settings |
-| POST | /api/settings | Update settings |
-| POST | /api/stream | Open a downloaded file in the preferred player |
-| POST | /api/delete | Delete a downloaded file (and .aria2 control file) |
-| POST | /api/showInFinder | Reveal a file in Finder |
-| POST | /api/notify | Show a macOS notification |
-| POST | /api/intercept | Accept a Chrome extension intercept and queue the URL |
+|---|---|---|
+| `GET` | `/api/ping` | Health check (returns `{ok: true, webPort}`) |
+| `GET` | `/api/settings` | Read current settings |
+| `POST` | `/api/settings` | Update settings (player, download dir) |
+| `GET` | `/api/history` | Full download history |
+| `POST` | `/api/history/clear-completed` | Remove all finished entries |
+| `POST` | `/api/history/delete` | Delete a download (+ optional file removal) |
+| `POST` | `/api/history/retry` | Restart a failed download from scratch |
+| `POST` | `/api/stream` | Open a downloaded file in the preferred player |
+| `POST` | `/api/delete` | Delete a file from disk |
+| `POST` | `/api/showInFinder` | Reveal a file in Finder |
+| `POST` | `/api/notify` | Show a macOS desktop notification |
+| `POST` | `/api/intercept` | Accept a download URL from the Chrome extension |
+| `GET` | `/api/config.js` | Dynamic JS with port + path config for the frontend |
 
-## Project structure
+---
 
-- [main.js](main.js) Electron main process
-- [server.js](server.js) Express backend and `aria2c` lifecycle
-- [public](public) Frontend assets
-- [extension](extension) Chrome extension for intercepting downloads
-- [src-tauri](src-tauri) Tauri app source
-- [bin/aria2c](bin/aria2c) Bundled `aria2c` binary (used in packaged builds)
+## Project Structure
+
+```
+downstream/
+├── backend/
+│   ├── main.js                 # Electron main process (window, protocol, native messaging)
+│   ├── server.js               # Express app, composition root, shutdown handler
+│   ├── config.js               # Settings loader (config.json, paths, ports)
+│   ├── shared-constants.js     # Shared file-type lists, URL parsing (CommonJS copy)
+│   ├── aria2/
+│   │   ├── processManager.js   # aria2c lifecycle (spawn, restart with backoff, cleanup)
+│   │   └── rpcClient.js        # Stateless HTTP JSON-RPC client for aria2
+│   ├── history/
+│   │   ├── historyStore.js     # Persistent download history (history.json)
+│   │   └── syncService.js      # Periodic aria2 ↔ history reconciliation
+│   ├── lib/
+│   │   ├── pathGuard.js        # Path traversal prevention for file operations
+│   │   └── notifier.js         # macOS notification wrapper (osascript)
+│   ├── middleware/
+│   │   └── httpGuards.js       # CORS and request logging middleware
+│   └── routes/
+│       ├── settings.js         # GET/POST /api/settings
+│       ├── files.js            # /api/stream, /api/delete, /api/showInFinder
+│       ├── history.js          # /api/history, clear, delete, retry
+│       └── intercept.js        # /api/intercept (Chrome extension endpoint)
+├── frontend/
+│   ├── index.html              # Single-page app shell
+│   ├── style.css               # Import entry point
+│   ├── css/
+│   │   ├── tokens.css          # Design tokens (colors, spacing, radii)
+│   │   ├── themes.css          # Dark/light theme variables
+│   │   ├── reset.css           # CSS reset
+│   │   ├── layout.css          # Page layout and grid
+│   │   ├── utilities.css       # Utility classes
+│   │   ├── responsive.css      # Breakpoint overrides
+│   │   └── components/         # Component-scoped styles
+│   └── js/
+│       ├── main.js             # App entry, polling loop, WebSocket setup
+│       ├── api.js              # HTTP API wrapper functions
+│       ├── downloads.js        # Download actions (add, pause, resume, cancel)
+│       ├── events.js           # Event delegation on the download list
+│       ├── render.js           # DOM rendering for download items
+│       ├── format.js           # Number/byte/time formatting helpers
+│       ├── speedGraph.js       # Canvas-based speed history graph
+│       ├── state.js            # Reactive UI state store
+│       ├── theme.js            # Theme toggle logic
+│       ├── transport.js        # WebSocket connection manager
+│       ├── env.js              # Runtime environment detection
+│       └── shared-constants.js # File-type lists, URL parsing (ES module copy)
+├── extension/
+│   ├── manifest.json           # Chrome extension manifest (MV3, locked extension ID)
+│   ├── background.js           # Service worker: download interception logic
+│   ├── content.js              # Content script: click-based link capture
+│   ├── popup.html              # Extension popup UI (enable/disable toggle)
+│   ├── popup.js                # Popup logic
+│   └── shared-constants.js     # File-type lists (synced copy)
+├── native-host/
+│   ├── interceptor.c           # C native messaging host (Chrome ↔ curl ↔ Express)
+│   ├── interceptor              # Compiled binary (arm64)
+│   └── com.downstream.interceptor.json  # Native messaging manifest template
+├── shared/
+│   └── shared-constants.js     # Canonical source for file-type lists and URL utils
+├── scripts/
+│   └── sync-shared.js          # Copies shared-constants.js to backend/frontend/extension
+├── bin/
+│   └── aria2c                  # Bundled aria2c binary for packaged builds
+├── build/                      # Electron-builder resources (icons, entitlements)
+├── run.sh                      # Dev launcher script (port checking, process management)
+├── update-dmg.sh               # Build, package, and optionally install the .app
+├── package.json                # npm scripts, electron-builder config, dependencies
+└── BUG_REPORT.md               # Issue tracker and fix history
+```
+
+### Shared constants
+
+File-type lists (video, audio, document extensions), content-type mappings, and URL-to-filename parsing live in `shared/shared-constants.js`. The `sync-shared.js` script copies this file into `backend/`, `frontend/js/`, and `extension/` — each adapted for its module system (CommonJS or ES modules). This runs automatically on `npm start` and `npm run dev`.
+
+---
+
+## Reliability Features
+
+- **Process management** — tracks `aria2c` PID in `pids.json`; clean SIGTERM → SIGKILL on shutdown
+- **Auto-restart with backoff** — if `aria2c` crashes, retries up to 5 times with exponential delay (1s → 2s → 4s → 8s → 16s); stops after 5 consecutive failures
+- **Non-blocking port wait** — async polling instead of synchronous `sleep` loops on startup
+- **Path traversal guard** — all file operations are validated against the configured download directory
+- **Sync guard** — prevents concurrent history sync cycles from racing on the shared array
+- **Graceful shutdown** — clears intervals, stops sync, closes HTTP server, kills aria2c, deletes PID file
+
+---
 
 ## Troubleshooting
 
-- UI says it cannot connect to `aria2c`: ensure `aria2c` is running and listening on port 6800.
-- Streaming fails: the file may not have buffered 200 KB yet, or the preferred player is not installed.
-- Extension not intercepting: check the toggle in the extension popup and confirm the app is running.
-- macOS notifications do not show: check notification permissions for the app in System Settings.
+| Problem | Fix |
+|---|---|
+| UI says "cannot connect to aria2c" | Check terminal for startup errors. Try custom ports: `PORT=3999 ARIA2_PORT=6801 npm start` |
+| Stream button missing | File must be a recognised video/audio type and partially downloaded. Check preferred player is installed. |
+| Extension not intercepting | Open the extension popup and make sure interception is enabled. Check `chrome://extensions` for errors. |
+| Notifications not showing | Allow notifications for DownStream in **System Settings → Notifications** |
+| Port conflict on restart | The app waits up to 2s for ports to free. If issues persist, use different ports via env vars. |
+| Native Messaging errors in Chrome | The app registers manifests automatically. Verify the `interceptor` binary exists and is executable (`chmod +x native-host/interceptor`). |
+
+---
+
+## License
+
+ISC

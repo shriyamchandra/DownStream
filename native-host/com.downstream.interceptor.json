@@ -1,0 +1,10 @@
+{
+  "name": "com.downstream.interceptor",
+  "description": "DownStream native messaging host for Chrome extension",
+  "path": "REPLACE_WITH_ABSOLUTE_PATH_TO_INTERCEPTOR_BINARY",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://egjdjkfddjpgakdgemjnfmdochggdelf",
+    "chrome-extension://hpbnhbgbllnkkdkhednecnkcpnkicmkp"
+  ]
+}

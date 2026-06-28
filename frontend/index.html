@@ -61,7 +61,7 @@
 
                 <div class="speed-limiter">
                     <label class="field-label" for="speedLimitSelect">Global Speed Limit</label>
-                    <select id="speedLimitSelect" onchange="setGlobalSpeedLimit(this.value)">
+                    <select id="speedLimitSelect">
                         <option value="0">Unlimited</option>
                         <option value="10M">10 MB/s</option>
                         <option value="5M">5 MB/s</option>
@@ -171,6 +171,20 @@
                     <input type="text" id="prefDir" style="padding:10px;">
                 </div>
 
+                <div class="setting-group" style="display:flex; flex-direction:column; gap:8px; max-width:500px;">
+                    <label style="font-size:0.9rem; color:var(--text-secondary); font-weight:500;">YouTube Cookies Source (Browser)</label>
+                    <select id="prefCookiesBrowser" style="padding:10px;">
+                        <option value="">None (No authentication cookies)</option>
+                        <option value="chrome">Google Chrome</option>
+                        <option value="firefox">Mozilla Firefox</option>
+                        <option value="safari">Apple Safari</option>
+                        <option value="edge">Microsoft Edge</option>
+                        <option value="brave">Brave Browser</option>
+                        <option value="opera">Opera</option>
+                        <option value="vivaldi">Vivaldi</option>
+                    </select>
+                </div>
+
                 <button id="saveSettingsBtn" style="max-width:200px; padding:10px 20px; font-weight:600;">Save Settings</button>
             </div>
         </main>
@@ -184,6 +198,7 @@
         </div>
     </div>
 
+    <script src="/api/config.js"></script>
     <script type="module" src="js/main.js"></script>
 </body>
 </html>

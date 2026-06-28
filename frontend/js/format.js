@@ -1,4 +1,5 @@
 // Pure presentation helpers and classifiers — no app state, no DOM.
+import { VIDEO_EXTS, getFilenameFromUrl, getFileCategory } from './shared-constants.js';
 
 // Escape untrusted text (filenames, URLs, error messages — all attacker-influenced
 // via the download source) before interpolating into innerHTML, to prevent XSS.
@@ -37,31 +38,20 @@ export function getFileName(d) {
         if (d.files[0].path) {
             return d.files[0].path.split('/').pop();
         } else if (d.files[0].uris && d.files[0].uris.length > 0) {
-            try {
-                const urlObj = new URL(d.files[0].uris[0].uri);
-                return urlObj.pathname.split('/').pop() || 'downloaded_file';
-            } catch (e) {
-                return 'downloaded_file';
-            }
+            return getFilenameFromUrl(d.files[0].uris[0].uri, 'downloaded_file');
         }
     }
     return 'Unknown File';
 }
 
-// Video formats only for the Stream / player feature.
-export const VIDEO_EXTS = [
-    'mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv', 'm4v', '3gp', 'ts', 'mpg', 'mpeg',
-    'm2ts', 'mts', 'mxf', 'vob', 'ogv', 'rm', 'rmvb', 'divx', 'hevc', 'h264'
-];
-
 export function isVideoFile(filename) {
     if (!filename) return false;
     const ext = filename.split('.').pop().toLowerCase();
-    return VIDEO_EXTS.includes(ext);
+    return VIDEO_EXTS.includes(ext) || ext === 'm3u8';
 }
 
 export function getStatusClass(status) {
-    if (status === 'active' || status === 'waiting') return 'status-active';
+    if (status === 'active' || status === 'waiting' || status === 'merging') return 'status-active';
     if (status === 'paused') return 'status-paused';
     if (status === 'complete') return 'status-complete';
     return 'status-error';
@@ -74,16 +64,18 @@ export function getStatusText(status) {
     if (status === 'complete') return 'Complete';
     if (status === 'error') return 'Failed';
     if (status === 'removed') return 'Cancelled';
+    if (status === 'merging') return 'Merging...';
     return status;
 }
 
 export function getFileIconClass(filename) {
     const ext = filename.split('.').pop().toLowerCase();
-    if (['mp4', 'mkv', 'avi', 'mov', 'flv', 'wmv', 'webm', 'm3u8'].includes(ext)) return 'video';
-    if (['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac'].includes(ext)) return 'audio';
-    if (['zip', 'rar', '7z', 'tar', 'gz', 'bz2'].includes(ext)) return 'zip';
+    const cat = getFileCategory(ext);
+    if (cat === 'video') return 'video';
+    if (cat === 'audio') return 'audio';
+    if (cat === 'archive') return 'zip';
+    if (ext === 'pdf') return 'pdf';
     if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp'].includes(ext)) return 'image';
-    if (['pdf'].includes(ext)) return 'pdf';
     return 'doc'; // default
 }
 
