@@ -502,6 +502,10 @@
       destroyFAB();
       qualitiesPromise = null;
       setTimeout(injectFAB, INITIAL_DELAY_MS);
+    } else {
+      if (!document.getElementById(FAB_ID) && isVideoPage()) {
+        injectFAB();
+      }
     }
   }
 
