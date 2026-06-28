@@ -267,6 +267,42 @@ chrome.downloads.onCreated.addListener((item) => {
     console.log('[Aria2] onCreated logged:', item.url, '| mime:', item.mime, '| state:', item.state);
 });
 
+async function getDownloadMetadata(item) {
+    const urlsToQuery = [];
+    if (item.url) urlsToQuery.push(item.url);
+    if (item.referrer) urlsToQuery.push(item.referrer);
+    
+    let activeTabUrl = '';
+    try {
+        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tabs && tabs[0] && tabs[0].url) {
+            activeTabUrl = tabs[0].url;
+            urlsToQuery.push(activeTabUrl);
+        }
+    } catch (e) {}
+
+    const resolvedReferrer = item.referrer || activeTabUrl || '';
+
+    const allCookies = [];
+    const seen = new Set();
+    for (const url of urlsToQuery) {
+        try {
+            const cookies = await chrome.cookies.getAll({ url });
+            for (const c of cookies) {
+                const key = `${c.name}=${c.value}`;
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    allCookies.push(key);
+                }
+            }
+        } catch (e) {}
+    }
+    return {
+        cookiesString: allCookies.join('; '),
+        referrer: resolvedReferrer
+    };
+}
+
 // ── Strategy 3: Consolidated onDeterminingFilename ───────────
 chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
     console.log('[Aria2] onDeterminingFilename:', item.url, '| mime:', item.mime, '| filename:', item.filename);
@@ -294,11 +330,9 @@ chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
                 return;
             }
 
-            chrome.cookies.getAll({ url: item.url }).then(async (cookies) => {
-                const cookiesString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+            getDownloadMetadata(item).then(async (meta) => {
                 const filename = item.filename ? item.filename.split(/[/\\]/).pop() : '';
-                
-                const sent = await sendToAria2(item.url, filename, item.referrer || '', cookiesString);
+                const sent = await sendToAria2(item.url, filename, meta.referrer, meta.cookiesString);
                 if (sent) {
                     chrome.downloads.cancel(item.id, () => {
                         chrome.downloads.erase({ id: item.id });
