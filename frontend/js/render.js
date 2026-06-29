@@ -219,7 +219,7 @@ export function renderDownloads() {
                             <div class="row-name" title="${escapeHtml(filename)}">${escapeHtml(filename)}</div>
                             <div class="row-meta">
                                 <span class="row-size">${formatBytes(completed)} / ${total > 0 ? formatBytes(total) : '??'}</span>
-                                <span class="status-badge ${getStatusClass(d.status)}">${getStatusText(d.status)}</span>
+                                <span class="status-badge ${getStatusClass(d.status)}">${getStatusText(d.status, d.phase)}</span>
                                 <span class="row-speed"${showSpeed ? '' : ' hidden'}>${speedInner}</span>
                             </div>
                         </div>
@@ -228,7 +228,7 @@ export function renderDownloads() {
                         </div>
                     </div>
                     <div class="row-progress-container">
-                        <div class="row-progress-bar" style="width:${pct}%"></div>
+                        <div class="row-progress-bar ${d.status === 'merging' ? 'merging' : ''}" style="width:${d.status === 'merging' ? 100 : pct}%"></div>
                     </div>
                     ${detailsHtml}
                 </div>
@@ -255,7 +255,14 @@ export function renderDownloads() {
             const speedInner = showSpeed ? `Speed: ${formatBytes(speed)}/s <span class="eta">· ETA ${formatTime(etaSeconds)}</span>` : '';
 
             const bar = row.querySelector('.row-progress-bar');
-            if (bar) bar.style.width = pct + '%';
+            if (bar) {
+                bar.style.width = (d.status === 'merging' ? 100 : pct) + '%';
+                if (d.status === 'merging') {
+                    bar.classList.add('merging');
+                } else {
+                    bar.classList.remove('merging');
+                }
+            }
 
             const sizeSpan = row.querySelector('.row-size');
             if (sizeSpan) sizeSpan.innerText = `${formatBytes(completed)} / ${total > 0 ? formatBytes(total) : '??'}`;
@@ -263,7 +270,7 @@ export function renderDownloads() {
             const badge = row.querySelector('.status-badge');
             if (badge) {
                 badge.className = `status-badge ${getStatusClass(d.status)}`;
-                badge.innerText = getStatusText(d.status);
+                badge.innerText = getStatusText(d.status, d.phase);
             }
 
             const speedSpan = row.querySelector('.row-speed');

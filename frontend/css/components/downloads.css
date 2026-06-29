@@ -79,6 +79,31 @@
     position: relative;
 }
 
+.row-progress-bar.merging {
+    background: linear-gradient(
+        45deg,
+        rgba(255, 255, 255, 0.15) 25%,
+        transparent 25%,
+        transparent 50%,
+        rgba(255, 255, 255, 0.15) 50%,
+        rgba(255, 255, 255, 0.15) 75%,
+        transparent 75%,
+        transparent
+    ), var(--accent);
+    background-size: 40px 40px;
+    animation: progress-bar-stripes 2s linear infinite, pulse 1.5s ease-in-out infinite alternate;
+}
+
+@keyframes progress-bar-stripes {
+    from { background-position: 40px 0; }
+    to   { background-position: 0 0; }
+}
+
+@keyframes pulse {
+    from { opacity: 0.7; }
+    to   { opacity: 1; }
+}
+
 .row-progress-bar::before { content: none; }
 .row-progress-bar::after  { content: none; }
 

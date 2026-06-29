@@ -369,6 +369,7 @@
       path:           file?.path || '',
       percent:        total > 0 ? Math.round((done / total) * 100) : 0,
       eta:            speed > 0 && total > done ? Math.ceil((total - done) / speed) : 0,
+      phase:          raw.phase
     };
   }
 
@@ -628,7 +629,12 @@
     if (dl.status === 'active') {
       const speedText = dl.downloadSpeed > 0 ? formatBytes(dl.downloadSpeed) + '/s' : '0 B/s';
       const etaText = dl.eta ? formatEta(dl.eta) : '';
+      let statusLabel = '';
+      if (dl.phase === 'audio') statusLabel = '<span class="dl-status-text">Downloading Audio</span><span class="dl-meta-sep">•</span>';
+      else if (dl.phase === 'video') statusLabel = '<span class="dl-status-text">Downloading Video</span><span class="dl-meta-sep">•</span>';
+
       metaHtml = `
+        ${statusLabel}
         <span class="dl-speed">${speedText}</span>
         ${etaText ? `<span class="dl-meta-sep">•</span><span class="dl-eta">${etaText}</span>` : ''}
         <span class="dl-meta-sep">•</span>

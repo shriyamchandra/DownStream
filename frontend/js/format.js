@@ -57,8 +57,12 @@ export function getStatusClass(status) {
     return 'status-error';
 }
 
-export function getStatusText(status) {
-    if (status === 'active') return 'Downloading';
+export function getStatusText(status, phase) {
+    if (status === 'active') {
+        if (phase === 'audio') return 'Downloading Audio';
+        if (phase === 'video') return 'Downloading Video';
+        return 'Downloading';
+    }
     if (status === 'waiting') return 'Waiting';
     if (status === 'paused') return 'Paused';
     if (status === 'complete') return 'Complete';

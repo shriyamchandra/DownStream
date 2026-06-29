@@ -184,25 +184,32 @@ function startYoutubeDownload(gid, url, filename, formatId, chosenExt, referrer)
     activeYoutubeDownloads.set(gid, activeInfo);
 
     let lastProgressTime = Date.now();
-    let currentStream = 'video';
+    let currentStream = isAudio ? 'audio' : 'video';
     let videoTotalBytes = 0;
     let videoCompletedBytes = 0;
     let destinationCount = 0;
 
+    let lineBuffer = '';
     proc.stdout.on('data', (data) => {
-        const lines = data.toString().split('\n');
-        for (const line of lines) {
-            if (line.includes('[ffmpeg] Merging formats') || line.includes('[Merger] Merging formats')) {
+        lineBuffer += data.toString();
+        const parts = lineBuffer.split(/[\r\n]+/);
+        lineBuffer = parts.pop();
+
+        for (const line of parts) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+
+            if (trimmed.includes('[ffmpeg] Merging formats') || trimmed.includes('[Merger] Merging formats')) {
                 item.status = 'merging';
                 item.downloadSpeed = 0;
                 history.save();
                 continue;
             }
-            const progress = parseYtDlpProgress(line);
+            const progress = parseYtDlpProgress(trimmed);
             if (progress) {
                 if (progress.isDestination) {
                     destinationCount++;
-                    if (destinationCount > 1) {
+                    if (destinationCount > 1 && currentStream === 'video') {
                         currentStream = 'audio';
                         videoCompletedBytes = videoTotalBytes;
                     }
@@ -220,7 +227,8 @@ function startYoutubeDownload(gid, url, filename, formatId, chosenExt, referrer)
                 }
                 item.downloadSpeed = progress.downloadSpeed;
                 item.status = 'active';
-                
+                item.phase = currentStream;
+
                 if (now - lastProgressTime > 1500) {
                     history.save();
                     lastProgressTime = now;
@@ -229,12 +237,17 @@ function startYoutubeDownload(gid, url, filename, formatId, chosenExt, referrer)
         }
     });
 
+    let stderrBuffer = '';
     proc.stderr.on('data', (data) => {
-        const str = data.toString();
-        console.warn(`[YouTube Download ${gid} Stderr]:`, str.trim());
-        const lines = str.split('\n');
-        for (const line of lines) {
-            if (line.includes('[ffmpeg] Merging formats') || line.includes('[Merger] Merging formats')) {
+        stderrBuffer += data.toString();
+        const parts = stderrBuffer.split(/[\r\n]+/);
+        stderrBuffer = parts.pop();
+
+        for (const line of parts) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            console.warn(`[YouTube Download ${gid} Stderr]:`, trimmed);
+            if (trimmed.includes('[ffmpeg] Merging formats') || trimmed.includes('[Merger] Merging formats')) {
                 item.status = 'merging';
                 item.downloadSpeed = 0;
                 history.save();
@@ -287,8 +300,10 @@ function startYoutubeDownload(gid, url, filename, formatId, chosenExt, referrer)
                     fs.renameSync(tempPath, finalPath);
                     console.log(`[YouTube Download ${gid}] Renamed "${path.basename(tempPath)}" -> "${actualFinalName}"`);
                     
+                    const stats = fs.statSync(finalPath);
                     item.status = 'complete';
-                    item.completedLength = item.totalLength;
+                    item.totalLength = stats.size;
+                    item.completedLength = stats.size;
                     item.downloadSpeed = 0;
                     item.completedDate = new Date().toISOString();
                     item.files = [{ path: finalPath }];
@@ -314,8 +329,18 @@ function startYoutubeDownload(gid, url, filename, formatId, chosenExt, referrer)
                 }
             } else {
                 console.warn(`[YouTube Download ${gid}] No temp file found to rename. File may already be at final path.`);
+                
+                let finalPath = path.join(config.data.downloadDir, `${stem}.${ext}`);
+                let finalSize = item.totalLength;
+                if (fs.existsSync(finalPath)) {
+                    try {
+                        finalSize = fs.statSync(finalPath).size;
+                    } catch (e) {}
+                }
+
                 item.status = 'complete';
-                item.completedLength = item.totalLength;
+                item.totalLength = finalSize;
+                item.completedLength = finalSize;
                 item.downloadSpeed = 0;
                 item.completedDate = new Date().toISOString();
                 history.save();
