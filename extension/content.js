@@ -30,6 +30,8 @@
 
   const VIDEO_SITES = [
     { test: /youtube\.com\/watch/i,    title: () => document.title.replace(/ - YouTube$/, '') },
+    { test: /youtube\.com\/shorts\//i, title: () => document.title.replace(/ - YouTube$/, '') },
+    { test: /youtube\.com\/embed\//i,  title: () => document.title.replace(/ - YouTube$/, '') },
     { test: /youtu\.be\//i,           title: () => document.title.replace(/ - YouTube$/, '') },
     { test: /vimeo\.com\/\d+/i,       title: () => document.title.replace(/ on Vimeo$/, '') },
     { test: /dailymotion\.com\/video/i, title: () => document.title.replace(/ - Dailymotion$/, '') },

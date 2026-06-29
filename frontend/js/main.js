@@ -12,16 +12,26 @@ initTheme();
 initEvents();
 
 let refreshInterval = null;
+const POLL_FAST = 1000;   // 1 s when visible
+const POLL_SLOW = 10000;  // 10 s when hidden / minimised
+
+function startPolling() {
+    if (refreshInterval) clearInterval(refreshInterval);
+    const interval = document.hidden ? POLL_SLOW : POLL_FAST;
+    refreshInterval = setInterval(refreshDownloads, interval);
+}
 
 // On (re)connect, load settings, render once, then poll for live updates.
 client.onConnect = () => {
     loadSettings();
     refreshDownloads();
-    if (refreshInterval) {
-        clearInterval(refreshInterval);
-    }
-    refreshInterval = setInterval(refreshDownloads, 1000);
+    startPolling();
 };
+
+// Throttle polling when the window loses / gains visibility.
+document.addEventListener('visibilitychange', () => {
+    if (refreshInterval) startPolling();
+});
 
 // Push notifications from aria2 — refresh immediately, and toast on completion.
 client.onMessage = async (data) => {
