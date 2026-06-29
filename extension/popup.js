@@ -402,7 +402,7 @@
 
     for (const dl of activeGids.values()) {
       seen.add(dl.gid);
-      if (dl.status === 'active') active.push(dl);
+      if (dl.status === 'active' || dl.status === 'merging') active.push(dl);
       else if (dl.status === 'paused' || dl.status === 'waiting') paused.push(dl);
     }
 
@@ -410,7 +410,7 @@
       if (seen.has(h.gid)) continue;
       seen.add(h.gid);
       const dl = normaliseDl(h);
-      if (dl.status === 'active') active.push(dl);
+      if (dl.status === 'active' || dl.status === 'merging') active.push(dl);
       else if (dl.status === 'paused' || dl.status === 'waiting') paused.push(dl);
       else recent.push(dl); // complete, error, removed
     }
@@ -618,6 +618,7 @@
     
     let progClass = dl.status;
     if (dl.status === 'waiting') progClass = 'paused';
+    if (dl.status === 'merging') progClass = 'active';
     
     let pctClass = '';
     if (dl.status === 'complete') pctClass = 'complete';
@@ -632,6 +633,12 @@
         ${etaText ? `<span class="dl-meta-sep">•</span><span class="dl-eta">${etaText}</span>` : ''}
         <span class="dl-meta-sep">•</span>
         <span>${formatBytes(dl.completedLength)} / ${formatBytes(dl.totalLength)}</span>
+      `;
+    } else if (dl.status === 'merging') {
+      metaHtml = `
+        <span class="dl-status-text">Merging audio & video…</span>
+        <span class="dl-meta-sep">•</span>
+        <span>${formatBytes(dl.totalLength)}</span>
       `;
     } else if (dl.status === 'paused' || dl.status === 'waiting') {
       metaHtml = `
@@ -649,11 +656,12 @@
     }
 
     let actionsHtml = '';
-    if (dl.status === 'active') {
+    if (dl.status === 'active' || dl.status === 'merging') {
+      const showPause = dl.status === 'active';
       actionsHtml = `
-        <button class="dl-btn dl-btn--cancel" data-action="pause" data-gid="${dl.gid}" title="Pause">
+        ${showPause ? `<button class="dl-btn dl-btn--cancel" data-action="pause" data-gid="${dl.gid}" title="Pause">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="14" y="4" width="4" height="16" rx="1"></rect><rect x="6" y="4" width="4" height="16" rx="1"></rect></svg>
-        </button>
+        </button>` : ''}
         <button class="dl-btn dl-btn--cancel" data-action="cancel" data-gid="${dl.gid}" title="Cancel">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
         </button>

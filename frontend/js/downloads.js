@@ -98,7 +98,14 @@ export async function refreshDownloads() {
                     uploadSpeed: live.uploadSpeed
                 };
             }
-            return { ...hItem, downloadSpeed: 0 };
+            // YouTube/yt-dlp downloads are tracked entirely in server-side history,
+            // not in aria2. Preserve their live speed/progress from the history item.
+            const isYtDownload = typeof hItem.gid === 'string' && hItem.gid.startsWith('youtube-');
+            const isActiveYt = isYtDownload && (hItem.status === 'active' || hItem.status === 'merging');
+            return {
+                ...hItem,
+                downloadSpeed: isActiveYt ? (hItem.downloadSpeed || 0) : 0
+            };
         });
 
         // Include any live items not yet persisted (rare timing window).
