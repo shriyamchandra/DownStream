@@ -25,7 +25,7 @@
         "http://127.0.0.1:*/*"
       ],
       "matches": ["<all_urls>"],
-      "js": ["shared-constants.js", "content.js"],
+      "js": ["content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
     }
