@@ -97,6 +97,11 @@
     if (EXCLUDED_PORTS.includes(location.port)) return;
     if (!location.protocol.startsWith('http')) return;
 
+    if (observer) {
+      try { observer.disconnect(); } catch (e) {}
+      observer = null;
+    }
+
     const title = getVideoTitle() || 'Download this file';
     const isDirect = isDirectMediaUrl();
     const label = isDirect ? 'Download File' : 'Download & Stream';
@@ -184,16 +189,19 @@
     const el = fab;
     fab = null;
     setTimeout(() => el.remove(), 320);
+    startWatching();
   }
 
   function pauseSiteVideo() {
     try {
-      const video = document.querySelector('video');
-      if (video && !video.paused) {
-        video.pause();
-      }
+      const videos = document.querySelectorAll('video');
+      videos.forEach(video => {
+        if (video && !video.paused) {
+          video.pause();
+        }
+      });
     } catch (e) {
-      console.warn('Failed to pause page video:', e);
+      console.warn('Failed to pause page videos:', e);
     }
   }
 
@@ -268,6 +276,7 @@
     }
 
     qualitiesPromise.then((data) => {
+      if (!overlay.parentNode) return;
       const bodyContent = overlay.querySelector('#ds-modal-body-content');
       
       const { formats } = data;
@@ -293,11 +302,12 @@
         return 0;
       });
 
-      const seenHeights = new Set();
+      const seenHeightExt = new Set();
       const uniqueCombinedVideo = [];
       for (const f of combinedVideo) {
-        if (!seenHeights.has(f.height)) {
-          seenHeights.add(f.height);
+        const key = `${f.height}|${f.ext}`;
+        if (!seenHeightExt.has(key)) {
+          seenHeightExt.add(key);
           uniqueCombinedVideo.push(f);
         }
       }
@@ -378,11 +388,17 @@
         });
 
         const origText = dlBtn.textContent;
+        const origTextStream = streamBtn ? streamBtn.textContent : '';
         dlBtn.textContent = '✓ Sent!';
         dlBtn.disabled = true;
+        if (streamBtn) streamBtn.disabled = true;
         setTimeout(() => {
           dlBtn.textContent = origText;
           dlBtn.disabled = false;
+          if (streamBtn) {
+            streamBtn.textContent = origTextStream;
+            streamBtn.disabled = false;
+          }
         }, 1500);
       });
 
@@ -415,6 +431,7 @@
 
     }).catch((err) => {
       qualitiesPromise = null;
+      if (!overlay.parentNode) return;
       const bodyContent = overlay.querySelector('#ds-modal-body-content');
       bodyContent.innerHTML = `
         <div class="ds-video-info">
@@ -490,6 +507,10 @@
   }
 
   function startWatching() {
+    if (observer) {
+      try { observer.disconnect(); } catch (e) {}
+      observer = null;
+    }
     let timer = null;
     observer = new MutationObserver(() => {
       clearTimeout(timer);
@@ -526,6 +547,11 @@
       return false;
   }
 
+  const videoExtensions = [
+      'mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv', 'm4v', '3gp', 'ts', 'mpg', 'mpeg',
+      'mp3', 'flac', 'wav', 'ogg', 'm4a', 'aac', 'wma', 'opus', 'alac'
+  ];
+
   const clickInterceptExtensions = [
       'zip', 'rar', 'tar', 'gz', '7z', 'bz2', 'xz', 'iso', 'img', 'cab', 'z', 'jar',
       'dmg', 'pkg', 'bin', 'exe', 'msi', 'apk', 'app',
@@ -535,8 +561,75 @@
   function isClickInterceptAnchor(anchor, href) {
       if (anchor.hasAttribute('data-ds-bypass')) return false;
       if (anchor.hasAttribute('download')) return true;
-      if (clickInterceptExtensions.includes(getExt(href))) return true;
+      const ext = getExt(href);
+      if (clickInterceptExtensions.includes(ext) || videoExtensions.includes(ext)) return true;
       return false;
+  }
+
+  function showDirectMediaModal(href, filename) {
+    if (document.getElementById('downstream-modal-overlay')) return;
+
+    const title = filename || getExt(href).toUpperCase() + ' Media';
+
+    const overlay = document.createElement('div');
+    overlay.id = 'downstream-modal-overlay';
+    overlay.innerHTML = `
+      <div id="downstream-modal">
+        <div class="ds-modal-header">
+          <span class="ds-modal-title">DownStream Intercept</span>
+          <button class="ds-modal-close" id="ds-modal-close-btn">&times;</button>
+        </div>
+        <div class="ds-modal-body">
+          <div class="ds-video-info">
+            <span class="ds-video-title" style="font-weight: 600;">${esc(title)}</span>
+          </div>
+          <div style="padding: 20px 0; text-align: center; color: #e1e1e1;">
+            Do you want to download this media file or stream it directly to your media player?
+          </div>
+        </div>
+        <div class="ds-modal-footer">
+          <button class="ds-modal-btn ds-modal-btn--cancel" id="ds-modal-cancel-btn">Cancel</button>
+          <button class="ds-modal-btn ds-modal-btn--stream" id="ds-modal-stream-btn" style="background: rgba(255, 107, 53, 0.14); color: #ff6b35; margin-right: 8px; box-shadow: 0 4px 12px rgba(255, 107, 53, 0.15); border: none;">Watch / Stream</button>
+          <button class="ds-modal-btn ds-modal-btn--dl" id="ds-modal-dl-btn">Download</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => overlay.classList.add('ds-modal--visible'));
+
+    const closeModal = () => {
+      overlay.classList.remove('ds-modal--visible');
+      setTimeout(() => overlay.remove(), 300);
+    };
+
+    overlay.querySelector('#ds-modal-close-btn').addEventListener('click', closeModal);
+    overlay.querySelector('#ds-modal-cancel-btn').addEventListener('click', closeModal);
+
+    overlay.querySelector('#ds-modal-dl-btn').addEventListener('click', () => {
+      closeModal();
+      safeSendMessage({
+        type: 'DOWNLOAD',
+        url: href,
+        filename: filename,
+        referrer: location.href,
+        stream: false
+      });
+      showToast('Sending download to DownStream...');
+    });
+
+    overlay.querySelector('#ds-modal-stream-btn').addEventListener('click', () => {
+      closeModal();
+      pauseSiteVideo();
+      safeSendMessage({
+        type: 'DOWNLOAD',
+        url: href,
+        filename: filename,
+        referrer: location.href,
+        stream: true
+      });
+      showToast('Streaming media...');
+    });
   }
 
   document.addEventListener('click', (e) => {
@@ -564,24 +657,30 @@
       e.preventDefault();
 
       const filename = anchor.getAttribute('download') || '';
+      const ext = getExt(href);
 
-      safeSendMessage({
-          type: 'DOWNLOAD',
-          url: href,
-          filename: filename,
-          referrer: location.href
-      }, (response) => {
-          if (!response || !response.ok) {
-              console.warn('[Aria2] Extension failed to intercept click, falling back to browser:', response?.error);
-              anchor.setAttribute('data-ds-bypass', 'true');
-              anchor.click();
-              setTimeout(() => {
-                  anchor.removeAttribute('data-ds-bypass');
-              }, 100);
-          } else {
-              showToast('Sending download to DownStream...');
-          }
-      });
+      if (videoExtensions.includes(ext)) {
+          showDirectMediaModal(href, filename);
+      } else {
+          safeSendMessage({
+              type: 'DOWNLOAD',
+              url: href,
+              filename: filename,
+              referrer: location.href
+          }, (response) => {
+              if (!response || !response.ok) {
+                  console.warn('[Aria2] Extension failed to intercept click, falling back to browser:', response?.error);
+                  const clone = anchor.cloneNode(true);
+                  clone.setAttribute('data-ds-bypass', 'true');
+                  clone.style.display = 'none';
+                  document.body.appendChild(clone);
+                  clone.click();
+                  clone.remove();
+              } else {
+                  showToast('Sending download to DownStream...');
+              }
+          });
+      }
   });
 
   function showToast(message) {
