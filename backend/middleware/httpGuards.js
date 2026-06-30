@@ -1,8 +1,18 @@
-// block cross-origin requests — /api can delete files and launch apps
-const ALLOWED_ORIGIN_RE = /^(https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?|chrome-extension:\/\/[a-p]+)$/;
+const ALLOWED_EXTENSION_IDS = new Set([
+    'egjdjkfddjpgakdgemjnfmdochggdelf',
+    'hpbnhbgbllnkkdkhednecnkcpnkicmkp'
+]);
 
 function originAllowed(origin) {
-    return !origin || ALLOWED_ORIGIN_RE.test(origin);
+    if (!origin) return true;
+    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return true;
+    try {
+        const url = new URL(origin);
+        if (url.protocol === 'chrome-extension:') {
+            return ALLOWED_EXTENSION_IDS.has(url.hostname);
+        }
+    } catch {}
+    return false;
 }
 
 function cors(req, res, next) {
@@ -24,7 +34,14 @@ function cors(req, res, next) {
 
 function requestLogger(req, res, next) {
     console.log(`[HTTP] ${req.method} ${req.url}`);
-    if (req.method === 'POST') console.log('Body:', JSON.stringify(req.body));
+    if (req.method === 'POST') {
+        const sanitized = { ...req.body };
+        if (sanitized.cookies) sanitized.cookies = '[REDACTED]';
+        if (sanitized.url && sanitized.url.length > 80) {
+            sanitized.url = sanitized.url.substring(0, 77) + '...';
+        }
+        console.log('Body:', JSON.stringify(sanitized));
+    }
     next();
 }
 
