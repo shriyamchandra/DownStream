@@ -6,7 +6,6 @@
   "description": "Intercept downloads and send them to DownStream download manager",
   "permissions": [
     "downloads",
-    "contextMenus",
     "activeTab",
     "storage",
     "nativeMessaging",
@@ -21,11 +20,14 @@
   },
   "content_scripts": [
     {
+      "exclude_matches": [
+        "http://localhost:*/*",
+        "http://127.0.0.1:*/*"
+      ],
       "matches": ["<all_urls>"],
       "js": ["shared-constants.js", "content.js"],
       "css": ["content.css"],
-      "run_at": "document_idle",
-      "all_frames": true
+      "run_at": "document_idle"
     }
   ],
   "action": {
@@ -42,6 +44,15 @@
     "128": "icons/icon128.png"
   },
   "externally_connectable": {
-    "matches": ["*://localhost/*"]
+    "matches": [
+      "http://localhost:3000/*",
+      "http://localhost:3999/*",
+      "http://localhost:4000/*",
+      "http://localhost:8080/*",
+      "http://127.0.0.1:3000/*",
+      "http://127.0.0.1:3999/*",
+      "http://127.0.0.1:4000/*",
+      "http://127.0.0.1:8080/*"
+    ]
   }
 }
