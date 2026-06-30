@@ -1,45 +1,24 @@
 const express = require('express');
-const { getFilenameFromUrl } = require('../shared-constants');
 
-// Endpoint for the Chrome extension: queue an intercepted browser download into
-// aria2, forwarding the browser's referrer / user-agent / cookies so authenticated
-// (single-use-token) downloads keep working.
-module.exports = function interceptRoutes({ rpc, notifier, events, handleIntercept }) {
+module.exports = function interceptRoutes({ handleIntercept }) {
     const router = express.Router();
 
     router.post('/api/intercept', async (req, res) => {
         try {
-            // Prefer the shared handler (supports queuing for SOLID readiness handling)
-            if (typeof handleIntercept === 'function') {
-                const result = await handleIntercept(req.body);
-                if (result.queued) {
-                    return res.json({ success: true, queued: true });
-                }
-                return res.json(result);
+            if (typeof handleIntercept !== 'function') {
+                return res.status(500).json({ error: 'Aria2c intercept engine is not initialized.' });
             }
 
-            // Fallback to direct implementation (for compatibility)
-            const { url, filename, referrer, userAgent, cookies } = req.body;
-            if (!url) return res.status(400).json({ error: 'URL is required' });
-
-            const options = {};
-            if (filename) options.out = filename;
-            if (referrer) options.referer = referrer;
-            if (userAgent) options['user-agent'] = userAgent;
-            if (cookies) options.header = [`Cookie: ${cookies}`];
-
-            const response = await rpc.call('addUri', [[url], options]);
-            if (response.error) {
-                return res.status(500).json({ error: response.error.message });
+            const result = await handleIntercept(req.body || {});
+            if (result.queued) {
+                return res.json({ success: true, queued: true });
             }
-
-            const cleanFilename = getFilenameFromUrl(url, filename || 'large_file');
-            notifier.notify('DownStream', `Captured: ${cleanFilename.substring(0, 45)}... downloading at max speed!`);
-            events.emit('intercept', { url, filename });
-
-            res.json({ success: true, gid: response.result });
+            return res.json(result);
         } catch (e) {
-            res.status(500).json({ error: 'Failed to communicate with aria2c engine.' });
+            console.error('[Intercept Error]', e);
+            const isValErr = e.message.includes('required') || e.message.includes('Invalid') || e.message.includes('safe');
+            const status = isValErr ? 400 : 500;
+            res.status(status).json({ error: e.message || 'Failed to process intercept request.' });
         }
     });
 

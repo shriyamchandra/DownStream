@@ -1,6 +1,5 @@
 import { state, MAX_SPEED_POINTS } from './state.js';
 
-// Renders the download-speed sparkline onto the #speedGraph canvas.
 export function drawSpeedGraph() {
     const canvas = document.getElementById('speedGraph');
     if (!canvas) return;
@@ -11,7 +10,6 @@ export function drawSpeedGraph() {
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
 
-    // Scale the canvas buffer if it doesn't match the styled size (retina support).
     if (canvas.width !== rect.width * dpr || canvas.height !== rect.height * dpr) {
         canvas.width = rect.width * dpr;
         canvas.height = rect.height * dpr;
@@ -29,7 +27,6 @@ export function drawSpeedGraph() {
     const borderColor = style.getPropertyValue('--border-subtle').trim() || 'rgba(255, 255, 255, 0.05)';
     const mutedColor = style.getPropertyValue('--text-tertiary').trim() || '#6e6e7a';
 
-    // Empty state: no traffic to plot — show a centered label.
     const hasTraffic = speedHistory.length >= 2 && Math.max(...speedHistory) > 0;
     if (!hasTraffic) {
         ctx.fillStyle = mutedColor;
@@ -40,7 +37,6 @@ export function drawSpeedGraph() {
         return;
     }
 
-    // Subtle grid lines.
     ctx.strokeStyle = borderColor;
     ctx.lineWidth = 0.5;
     for (let i = 1; i < 3; i++) {
@@ -51,7 +47,6 @@ export function drawSpeedGraph() {
         ctx.stroke();
     }
 
-    // Scale graph (minimum peak of 500 KB/s).
     const maxVal = Math.max(...speedHistory, 500 * 1024);
 
     const points = [];
@@ -64,7 +59,6 @@ export function drawSpeedGraph() {
         points.push({ x, y });
     }
 
-    // Gradient fill.
     ctx.beginPath();
     ctx.moveTo(points[0].x, height);
     ctx.lineTo(points[0].x, points[0].y);
@@ -78,12 +72,11 @@ export function drawSpeedGraph() {
     ctx.closePath();
 
     const fillGrad = ctx.createLinearGradient(0, 0, 0, height);
-    fillGrad.addColorStop(0, accent + '40'); // 25% opacity
-    fillGrad.addColorStop(1, accent + '00'); // 0% opacity
+    fillGrad.addColorStop(0, accent + '40');
+    fillGrad.addColorStop(1, accent + '00');
     ctx.fillStyle = fillGrad;
     ctx.fill();
 
-    // Glowing line.
     ctx.beginPath();
     ctx.moveTo(points[0].x, points[0].y);
     for (let i = 0; i < points.length - 1; i++) {

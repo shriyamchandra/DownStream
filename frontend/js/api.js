@@ -1,4 +1,3 @@
-// Universal API wrapper: HTTP fetch to Express backend.
 export async function callApi(endpoint, data = {}) {
     if (Object.keys(data).length === 0) {
         const res = await fetch(endpoint);

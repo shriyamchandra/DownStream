@@ -1,4 +1,3 @@
-// Environment detection + global error reporting.
 export const DEBUG = false;
 
 export function _log(msg) {

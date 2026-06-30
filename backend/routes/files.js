@@ -1,15 +1,12 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { execFile } = require('child_process');
 const { VIDEO_EXTS, STREAM_BUFFER_THRESHOLD } = require('../shared-constants');
-const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const { resolveStreamUrls } = require('../lib/ytDlpUtils');
+const { launchPlayer, isUrlExpired, USER_AGENT } = require('../lib/playerLauncher');
 
-// Recursively find a file by basename inside a directory (supports subfolders).
-// Includes try/catch to prevent crashes on unreadable folders and a depth limit.
 function findFile(dir, name, depth = 0) {
-    if (depth > 5) return null; // limit recursion depth
+    if (depth > 5) return null;
     try {
         if (!fs.existsSync(dir)) return null;
         const files = fs.readdirSync(dir);
@@ -23,17 +20,12 @@ function findFile(dir, name, depth = 0) {
                 } else if (file === name) {
                     return fullPath;
                 }
-            } catch (e) {
-                // Ignore read/stat error for this specific file/folder and continue
-            }
+            } catch (e) {}
         }
-    } catch (e) {
-        // Ignore read/permission error for this directory
-    }
+    } catch (e) {}
     return null;
 }
 
-// File-related endpoints: stream to a player, delete, reveal in Finder, notify.
 module.exports = function filesRoutes({ config, pathGuard, notifier, streamUrlCache }) {
     const router = express.Router();
 
@@ -45,76 +37,31 @@ module.exports = function filesRoutes({ config, pathGuard, notifier, streamUrlCa
             notifier.notify('DownStream', `Streaming ${quality} quality...`);
           }
         }
-        // Support quality selection by resolving stream URL via yt-dlp when a source url is provided (e.g. youtube watch url)
         const formatId = formatIdFromBody || quality;
         const srcUrl = srcUrlFromBody || req.body.url;
         if (formatId && srcUrl) {
-          const player = config.data.preferredPlayer || 'vlc';
-          const launchPlayer = (targetUrl, audioUrl = null, originalUrl = null, formatId = null) => {
-              let bin, args;
+          const player = config.data.preferredPlayer !== undefined ? config.data.preferredPlayer : 'vlc';
 
-              // For IINA and mpv, playing split streams (with audioUrl) or default "best" via the watch URL directly 
-              // is highly robust because the player resolves and plays both video and audio tracks natively via its internal yt-dlp.
-              const useYtdlWatchUrl = (player === 'iina' || player === 'mpv') && originalUrl && (audioUrl || !formatId || formatId === 'best');
-
-              if (useYtdlWatchUrl) {
-                  if (player === 'iina') {
-                      bin = '/Applications/IINA.app/Contents/MacOS/iina-cli';
-                      args = [originalUrl, '--'];
-                      if (formatId && formatId !== 'best') {
-                          args.push(`--ytdl-format=${formatId}+bestaudio/best`);
-                      }
-                  } else { // mpv
-                      bin = '/usr/local/bin/mpv';
-                      args = [originalUrl];
-                      if (formatId && formatId !== 'best') {
-                          args.push(`--ytdl-format=${formatId}+bestaudio/best`);
-                      }
-                  }
-              } else {
-                  // Otherwise, play the resolved progressive CDN URL directly
-                  if (player === 'iina') {
-                      bin = '/Applications/IINA.app/Contents/MacOS/iina-cli';
-                      args = [targetUrl, '--', `--user-agent=${USER_AGENT}`];
-                  } else if (player === 'mpv') {
-                      bin = '/usr/local/bin/mpv';
-                      args = [targetUrl, `--user-agent=${USER_AGENT}`];
-                  } else if (player === 'vlc') {
-                      bin = '/Applications/VLC.app/Contents/MacOS/VLC';
-                      let playUrl = targetUrl;
-                      // Fall back to a progressive format URL from cache if available.
-                      if (audioUrl && originalUrl) {
-                          const progCached = streamUrlCache ? streamUrlCache.get(`${originalUrl}|progressive`) : null;
-                          if (progCached && progCached.url) {
-                              playUrl = progCached.url;
-                              console.log('[VLC Fallback API] Using progressive stream for VLC playback:', playUrl.substring(0, 60));
-                          }
-                      }
-                      if (audioUrl && playUrl === targetUrl) {
-                          args = [targetUrl, `--input-slave=${audioUrl}`, `--http-user-agent=${USER_AGENT}`];
-                      } else {
-                          args = [playUrl, `--http-user-agent=${USER_AGENT}`];
-                      }
-                  } else {
-                      bin = 'open';
-                      args = [targetUrl];
-                  }
-              }
-
-              console.log(`[Stream Launch API] ${player}: ${bin}`, JSON.stringify(args.map(a => a.length > 80 ? a.substring(0, 77) + '...' : a)));
-              execFile(bin, args, (err) => {
-                  if (err) console.error(`[Stream Launch API] Failed: ${err.message}`);
-              });
-          };
-
-          // Check cache first
           if (streamUrlCache) {
             const cacheKey = `${srcUrl}|${formatId || 'best'}`;
             const cached = formatId ? streamUrlCache.get(cacheKey) : (streamUrlCache.get(cacheKey) || streamUrlCache.get(srcUrl));
             if (cached) {
-              console.log(`[Stream API] Cache hit for ${cacheKey}... — launching player instantly`);
-              launchPlayer(cached.url, cached.audioUrl, srcUrl, formatId);
-              return res.json({ success: true, message: `Stream launched (${formatId})` });
+              if (isUrlExpired(cached.url) || (cached.audioUrl && isUrlExpired(cached.audioUrl))) {
+                console.log(`[Stream API] Cache hit for key "${cacheKey}" is expired. Re-resolving.`);
+              } else {
+                console.log(`[Stream API] Cache hit for ${cacheKey}... — launching player instantly`);
+                launchPlayer({
+                  player,
+                  targetUrl: cached.url,
+                  audioUrl: cached.audioUrl,
+                  originalUrl: srcUrl,
+                  formatId,
+                  streamUrlCache,
+                  notifier,
+                  title: srcUrl
+                });
+                return res.json({ success: true, message: `Stream launched (${formatId})` });
+              }
             }
           }
 
@@ -125,22 +72,38 @@ module.exports = function filesRoutes({ config, pathGuard, notifier, streamUrlCa
           resolveStreamUrls(ytdlp, config, srcUrl, formatId, USER_AGENT, config.data.youtubeCookiesBrowser)
             .then(({ videoFormatId, videoUrl, audioFormatId, audioUrl }) => {
               if (streamUrlCache) {
-                // Cache under actual resolved formats
                 const resolvedKey = `${srcUrl}|${videoFormatId}`;
                 streamUrlCache.set(resolvedKey, { url: videoUrl, audioUrl });
                 
-                // Cache under requested key if appropriate
                 if (!formatId || videoFormatId === formatId || formatId === 'best' || ['4k','2160p','1080p','720p','480p'].includes(formatId)) {
                   const cacheKey = `${srcUrl}|${formatId || 'best'}`;
                   streamUrlCache.set(cacheKey, { url: videoUrl, audioUrl });
                 }
               }
-              launchPlayer(videoUrl, audioUrl, srcUrl, formatId);
+              launchPlayer({
+                player,
+                targetUrl: videoUrl,
+                audioUrl,
+                originalUrl: srcUrl,
+                formatId,
+                streamUrlCache,
+                notifier,
+                title: srcUrl
+              });
               return res.json({ success: true, message: `Stream launched (${formatId})` });
             })
             .catch(err => {
               console.error('[Stream quality resolve] yt-dlp failed, falling back', err.message, err.stderr || '');
-              launchPlayer(srcUrl, null, srcUrl, formatId);
+              launchPlayer({
+                player,
+                targetUrl: srcUrl,
+                audioUrl: null,
+                originalUrl: srcUrl,
+                formatId,
+                streamUrlCache,
+                notifier,
+                title: srcUrl
+              });
               return res.json({ success: true, message: 'Stream launched (fallback to page URL)' });
             });
           return;
@@ -149,14 +112,12 @@ module.exports = function filesRoutes({ config, pathGuard, notifier, streamUrlCa
 
         let filepath = null;
 
-        // Prefer an explicit full path (avoids collisions on duplicate basenames).
         if (providedPath && pathGuard.isWithin(providedPath) && fs.existsSync(providedPath)) {
             filepath = providedPath;
         } else {
             const name = path.basename(filename || providedPath || '');
             if (!name) return res.status(400).json({ error: 'Filename required' });
 
-            // Prioritize searching the category subfolder first to avoid duplicate filename collisions
             if (category) {
                 const categoryDir = path.join(config.data.downloadDir, category);
                 const found = findFile(categoryDir, name);
@@ -171,7 +132,6 @@ module.exports = function filesRoutes({ config, pathGuard, notifier, streamUrlCa
 
         if (!filepath) return res.status(404).json({ error: 'File not found on disk yet.' });
 
-        // Only video files can be streamed to a media player.
         const ext = path.extname(filepath).toLowerCase().slice(1);
         if (!VIDEO_EXTS.includes(ext)) {
             return res.status(400).json({ error: 'Only video files can be streamed to a media player.' });
@@ -180,7 +140,6 @@ module.exports = function filesRoutes({ config, pathGuard, notifier, streamUrlCa
         try {
             const stat = fs.statSync(filepath);
             if (stat.size < STREAM_BUFFER_THRESHOLD) {
-                // Still downloading (control file present) and under the buffer threshold.
                 if (fs.existsSync(filepath + '.aria2')) {
                     return res.status(400).json({ error: `Buffer not reached. File is < ${STREAM_BUFFER_THRESHOLD / 1000}KB.` });
                 }
@@ -189,8 +148,6 @@ module.exports = function filesRoutes({ config, pathGuard, notifier, streamUrlCa
             return res.status(500).json({ error: 'Could not read file size.' });
         }
 
-        // Build argv for `open` (no shell) so a filename with shell metacharacters
-        // (backticks, $(), quotes) can't inject commands.
         const openArgs = [];
         if (config.data.preferredPlayer === 'vlc') openArgs.push('-a', 'VLC');
         else if (config.data.preferredPlayer === 'iina') openArgs.push('-a', 'IINA');
@@ -246,7 +203,6 @@ module.exports = function filesRoutes({ config, pathGuard, notifier, streamUrlCa
         if (!pathGuard.isWithin(filepath)) {
             return res.status(403).json({ error: 'Path traversal blocked.' });
         }
-        // open -R highlights the file in Finder (argv form, no shell).
         execFile('open', ['-R', filepath], (err) => {
             if (err) return res.status(500).json({ error: 'Failed to open in Finder.' });
             res.json({ success: true });

@@ -1,22 +1,7 @@
 const path = require('path');
 const fs = require('fs');
-const { execFile } = require('child_process');
 const { resolveStreamUrls } = require('./ytDlpUtils');
-
-const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-
-function isUrlExpired(urlStr) {
-    try {
-        const parsed = new URL(urlStr);
-        const expire = parsed.searchParams.get('expire');
-        if (expire) {
-            const expireTime = parseInt(expire) * 1000;
-            // If it expires in less than 60 seconds, treat it as expired
-            return Date.now() > (expireTime - 60000);
-        }
-    } catch (e) {}
-    return false;
-}
+const { launchPlayer, isUrlExpired, USER_AGENT } = require('./playerLauncher');
 
 module.exports = function createInterceptor({
     config,
@@ -115,7 +100,6 @@ module.exports = function createInterceptor({
             }
 
             if (!isStream) {
-                // Check for duplicate active downloads of the same URL
                 const duplicate = history.items.find(x => x.urls && x.urls.includes(url) && (x.status === 'active' || x.status === 'waiting' || x.status === 'merging'));
                 if (duplicate) {
                     console.log(`[Intercept] URL is already downloading (GID: ${duplicate.gid}). Ignoring duplicate request.`);
@@ -157,58 +141,8 @@ module.exports = function createInterceptor({
             const localYtDlp = path.join(config.projectRoot, 'bin', 'yt-dlp');
             const ytDlpPath = (packagedYtDlp && fs.existsSync(packagedYtDlp)) ? packagedYtDlp : localYtDlp;
 
-            const player = config.data.preferredPlayer || 'vlc';
+            const player = config.data.preferredPlayer !== undefined ? config.data.preferredPlayer : 'vlc';
 
-            const launchPlayer = (targetUrl, audioUrl = null, originalUrl = null, formatId = null) => {
-                let bin, args;
-
-                const useYtdlWatchUrl = (player === 'iina' || player === 'mpv') && originalUrl && (audioUrl || !formatId || formatId === 'best');
-
-                if (useYtdlWatchUrl) {
-                    if (player === 'iina') {
-                        bin = '/Applications/IINA.app/Contents/MacOS/iina-cli';
-                        args = [originalUrl, '--'];
-                        if (formatId && formatId !== 'best') {
-                            args.push(`--ytdl-format=${formatId}+bestaudio/best`);
-                        }
-                    } else { // mpv
-                        bin = '/usr/local/bin/mpv';
-                        args = [originalUrl];
-                        if (formatId && formatId !== 'best') {
-                            args.push(`--ytdl-format=${formatId}+bestaudio/best`);
-                        }
-                    }
-                } else {
-                    if (player === 'iina') {
-                        bin = '/Applications/IINA.app/Contents/MacOS/iina-cli';
-                        args = [targetUrl, '--', `--user-agent=${USER_AGENT}`];
-                    } else if (player === 'mpv') {
-                        bin = '/usr/local/bin/mpv';
-                        args = [targetUrl, `--user-agent=${USER_AGENT}`];
-                    } else if (player === 'vlc') {
-                        bin = '/Applications/VLC.app/Contents/MacOS/VLC';
-                        let playUrl = targetUrl;
-                        if (audioUrl && playUrl === targetUrl) {
-                            args = [targetUrl, `--input-slave=${audioUrl}`, `--http-user-agent=${USER_AGENT}`];
-                        } else {
-                            args = [playUrl, `--http-user-agent=${USER_AGENT}`];
-                        }
-                    } else {
-                        bin = 'open';
-                        args = [targetUrl];
-                    }
-                }
-
-                console.log(`[Stream Launch] ${player}: ${bin}`, JSON.stringify(args.map(a => a.length > 80 ? a.substring(0, 77) + '...' : a)));
-                execFile(bin, args, (err) => {
-                    if (err) {
-                        console.error(`Failed to launch ${player}:`, err.message);
-                    }
-                });
-                if (notifier) notifier.notify('DownStream', `Streaming in ${player.toUpperCase()}: ${cleanFilename.substring(0, 45)}...`);
-            };
-
-            // Cache lookup with expiration validation
             const cacheKey = `${url}|${formatId || 'best'}`;
             const cached = formatId ? streamUrlCache.get(cacheKey) : (streamUrlCache.get(cacheKey) || streamUrlCache.get(url));
             if (cached) {
@@ -216,14 +150,22 @@ module.exports = function createInterceptor({
                     console.log(`[Stream] Cache hit for key "${cacheKey}" is expired or near expiration. Re-resolving.`);
                 } else {
                     console.log(`[Stream] Cache hit for key "${cacheKey}" (HasAudio: ${!!cached.audioUrl}) — launching player instantly`);
-                    launchPlayer(cached.url, cached.audioUrl, url, formatId);
+                    launchPlayer({
+                        player,
+                        targetUrl: cached.url,
+                        audioUrl: cached.audioUrl,
+                        originalUrl: url,
+                        formatId,
+                        streamUrlCache,
+                        notifier,
+                        title: cleanFilename
+                    });
                     return { success: true, streaming: true };
                 }
             }
 
             if (notifier) notifier.notify('DownStream', `Resolving stream for: ${cleanFilename.substring(0, 45)}...`);
 
-            // Coalesce concurrent resolutions for the same watch URL
             let resolvePromise = activeStreamResolutions.get(url);
             if (!resolvePromise) {
                 resolvePromise = resolveStreamUrls(ytDlpPath, config, url, formatId, USER_AGENT, config.data.youtubeCookiesBrowser);
@@ -234,21 +176,37 @@ module.exports = function createInterceptor({
                 const { videoFormatId, videoUrl, audioFormatId, audioUrl } = await resolvePromise;
                 activeStreamResolutions.delete(url);
                 
-                // Cache it under actual resolved format ID
                 const resolvedKey = `${url}|${videoFormatId}`;
                 streamUrlCache.set(resolvedKey, { url: videoUrl, audioUrl });
                 
-                // Cache under requested key if appropriate
                 if (!formatId || videoFormatId === formatId || formatId === 'best' || ['4k','2160p','1080p','720p','480p'].includes(formatId)) {
                     const cacheKey = `${url}|${formatId || 'best'}`;
                     streamUrlCache.set(cacheKey, { url: videoUrl, audioUrl });
                 }
                 
-                launchPlayer(videoUrl, audioUrl, url, formatId);
+                launchPlayer({
+                    player,
+                    targetUrl: videoUrl,
+                    audioUrl,
+                    originalUrl: url,
+                    formatId,
+                    streamUrlCache,
+                    notifier,
+                    title: cleanFilename
+                });
             } catch (err) {
                 activeStreamResolutions.delete(url);
                 console.error('[yt-dlp] Failed to extract stream URL, falling back to watch URL:', err.message);
-                launchPlayer(url, null, url, formatId);
+                launchPlayer({
+                    player,
+                    targetUrl: url,
+                    audioUrl: null,
+                    originalUrl: url,
+                    formatId,
+                    streamUrlCache,
+                    notifier,
+                    title: cleanFilename
+                });
             }
 
             return { success: true, streaming: true };

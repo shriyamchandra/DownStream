@@ -1,21 +1,10 @@
-/* ═══════════════════════════════════════════════════════════════════
-   DownStream — Popup Controller
-   Real-time download progress via aria2c WebSocket with REST
-   fallback. Renders active/paused/recent download cards with
-   live speed, ETA, and contextual actions.
-   ═══════════════════════════════════════════════════════════════════ */
-
 (() => {
   'use strict';
-
-  /* ── Configuration ───────────────────────────────────────────── */
 
   const ARIA2_PORT = 6800;
   const WS_POLL_INTERVAL = 1500;   // ms between tellActive calls
   const REST_POLL_INTERVAL = 2500; // fallback polling interval
   const MAX_RECENT = 8;
-
-  /* ── Category Icons ──────────────────────────────────────────── */
 
   const CAT_ICONS = {
     Videos:    '\uD83D\uDCF9',
@@ -26,8 +15,6 @@
     Software:  '\u2699\uFE0F',
     Other:     '\uD83D\uDCE5',
   };
-
-  /* ── State ───────────────────────────────────────────────────── */
 
   let serverPort = 3000;
   let aria2Port = ARIA2_PORT;
@@ -44,8 +31,6 @@
   let cachedActiveMerges = {};
   let activeMergesPollCounter = 0;
   let detectedStreamsList = [];
-
-  /* ── DOM refs ────────────────────────────────────────────────── */
 
   const $ = (sel) => document.querySelector(sel);
   const el = {
@@ -68,10 +53,6 @@
     streamsCount:  () => $('#streams-count'),
     streamsList:   () => $('#streams-list'),
   };
-
-  /* ══════════════════════════════════════════════════════════════
-     INIT
-     ══════════════════════════════════════════════════════════════ */
 
   async function init() {
     bindEvents();
@@ -101,10 +82,6 @@
     el.btnDashboard().addEventListener('click', openDashboard);
   }
 
-  /* ══════════════════════════════════════════════════════════════
-     SERVER DETECTION
-     ══════════════════════════════════════════════════════════════ */
-
   async function detectServer() {
     for (const port of [3000, 3999, 8080, 4000]) {
       try {
@@ -121,10 +98,6 @@
     return false;
   }
 
-  /* ══════════════════════════════════════════════════════════════
-     HISTORY (REST)
-     ══════════════════════════════════════════════════════════════ */
-
   async function fetchHistory() {
     try {
       const res = await fetch(`http://localhost:${serverPort}/api/history`, {
@@ -135,10 +108,6 @@
       }
     } catch { /* keep stale */ }
   }
-
-  /* ══════════════════════════════════════════════════════════════
-     WEBSOCKET — aria2c JSON-RPC
-     ══════════════════════════════════════════════════════════════ */
 
   function connectWS() {
     try {
@@ -213,10 +182,6 @@
       }
     });
   }
-
-  /* ══════════════════════════════════════════════════════════════
-     POLLING
-     ══════════════════════════════════════════════════════════════ */
 
   function startPolling() {
     if (pollTimer) clearInterval(pollTimer);
@@ -317,13 +282,11 @@
       waitingRaw.forEach(item => processItem(item, waiting));
       stoppedRaw.forEach(item => processItem(item, stopped));
 
-      // Merge into activeGids map
       activeGids.clear();
       for (const dl of [...active, ...waiting]) {
         activeGids.set(dl.gid, normaliseDl(dl));
       }
 
-      // Update historyItems with fresh stopped data
       for (const dl of stopped) {
         const idx = historyItems.findIndex(h => h.gid === dl.gid);
         const merged = normaliseDl(dl);
@@ -334,7 +297,6 @@
         }
       }
     } catch {
-      // WS failed — fall back to REST on next cycle
       if (wsReady) {
         wsReady = false;
         startPolling();
@@ -345,7 +307,6 @@
     }
   }
 
-  /** Convert raw aria2 response to a consistent object. */
   function normaliseDl(raw) {
     const total = parseInt(raw.totalLength || '0', 10);
     const done  = parseInt(raw.completedLength || '0', 10);
@@ -388,17 +349,11 @@
     return 'Other';
   }
 
-  /* ══════════════════════════════════════════════════════════════
-     RENDERING
-     ══════════════════════════════════════════════════════════════ */
-
   function render() {
-    // Partition downloads
     const active  = [];
     const paused  = [];
     const recent  = [];
 
-    // Collect from activeGids (live data) + historyItems
     const seen = new Set();
 
     for (const dl of activeGids.values()) {
@@ -413,10 +368,9 @@
       const dl = normaliseDl(h);
       if (dl.status === 'active' || dl.status === 'merging') active.push(dl);
       else if (dl.status === 'paused' || dl.status === 'waiting') paused.push(dl);
-      else recent.push(dl); // complete, error, removed
+      else recent.push(dl);
     }
 
-    // Sort recent
     recent.sort((a, b) => {
       const oa = order(a.status);
       const ob = order(b.status);
@@ -424,27 +378,22 @@
     });
     const recentShown = recent.slice(0, MAX_RECENT);
 
-    // Total speed
     const totalSpeed = active.reduce((s, d) => s + d.downloadSpeed, 0);
     updateSpeed(totalSpeed);
 
-    // Section visibility
     el.sectionActive().hidden = active.length === 0;
     el.sectionPaused().hidden = paused.length === 0;
     el.sectionRecent().hidden = recentShown.length === 0;
     el.emptyState().hidden = active.length + paused.length + recentShown.length > 0;
 
-    // Counts
     el.activeCount().textContent = active.length;
     el.pausedCount().textContent = paused.length;
     el.recentCount().textContent = recentShown.length;
 
-    // Render lists
     el.activeList().innerHTML = active.map((dl, i) => cardHTML(dl, i)).join('');
     el.pausedList().innerHTML = paused.map((dl, i) => cardHTML(dl, i)).join('');
     el.recentList().innerHTML = recentShown.map((dl, i) => cardHTML(dl, i)).join('');
 
-    // Render streams list
     const streams = detectedStreamsList || [];
     const streamsList = el.streamsList();
     const streamsSection = el.sectionStreams();
@@ -464,10 +413,8 @@
       });
     }
 
-    // Hide empty state if there are detected streams too
     el.emptyState().hidden = (active.length + paused.length + recentShown.length + streams.length) > 0;
 
-    // Bind action buttons
     document.querySelectorAll('[data-action]').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const action = btn.dataset.action;
@@ -549,7 +496,6 @@
   }
 
   function cardHTML(dl, index) {
-    // Special state: quality selector for stream (dynamic if fetched)
     if (pendingStreamGid === dl.gid) {
       const formats = pendingStreamQualities.get(dl.gid);
       let optionsHtml = '';
@@ -594,7 +540,6 @@
       `;
     }
 
-    // Special state: progress bar while preparing stream
     if (streamingItems.has(dl.gid)) {
       const info = streamingItems.get(dl.gid);
       const qText = info.quality ? ` @ ${info.quality}` : '';
@@ -789,7 +734,6 @@
         if (isVideoLike && !pendingStreamGid) {
           pendingStreamGid = gid;
           render();
-          // try to fetch real qualities if we have a source url (e.g. youtube watch url)
           const dlUrl = dl.url || (dl.urls && dl.urls[0]) || '';
           if (dlUrl) {
             fetch(`http://localhost:${serverPort}/api/qualities`, {

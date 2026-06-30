@@ -3,21 +3,17 @@ const path = require('path');
 const { spawn } = require('child_process');
 
 function findNodeRuntime(config) {
-    // 1. Check if process.argv[0] is node and exists
     if (process.argv[0] && process.argv[0].includes('node') && !process.argv[0].includes('Electron') && !process.argv[0].includes('downstream')) {
         if (fs.existsSync(process.argv[0])) {
             return process.argv[0];
         }
     }
-    // 2. Check local Node
     if (config && config.projectRoot) {
         const localNode = path.join(config.projectRoot, '.node-local', 'node-v22.13.0-darwin-arm64', 'bin', 'node');
         if (fs.existsSync(localNode)) {
             return localNode;
         }
     }
-    // 3. Fallback: check if system 'node' is in PATH.
-    // If not, return null so we don't pass the flag.
     const { execSync } = require('child_process');
     try {
         execSync('which node', { stdio: 'ignore' });
@@ -33,6 +29,11 @@ function execYtDlpJson(ytDlpPath, args) {
         let stdoutData = [];
         let stderrData = [];
 
+        const timeout = setTimeout(() => {
+            try { proc.kill('SIGTERM'); } catch (e) {}
+            reject(new Error('yt-dlp JSON extraction timed out after 30 seconds'));
+        }, 30000);
+
         proc.stdout.on('data', (chunk) => {
             stdoutData.push(chunk);
         });
@@ -42,6 +43,7 @@ function execYtDlpJson(ytDlpPath, args) {
         });
 
         proc.on('close', (code) => {
+            clearTimeout(timeout);
             const stdoutStr = Buffer.concat(stdoutData).toString('utf8');
             const stderrStr = Buffer.concat(stderrData).toString('utf8');
 
@@ -63,6 +65,7 @@ function execYtDlpJson(ytDlpPath, args) {
         });
 
         proc.on('error', (err) => {
+            clearTimeout(timeout);
             reject(err);
         });
     });
@@ -77,7 +80,7 @@ function resolveStreamUrls(ytDlpPath, config, url, formatId, userAgent, cookiesB
         else if (formatId === '1080p') formatSpec = 'best[height<=1080]';
         else if (formatId === '720p') formatSpec = 'best[height<=720]';
         else if (formatId === '480p') formatSpec = 'best[height<=480]';
-        else formatSpec = 'bestvideo[height<=2160]+bestaudio/best[height<=2160]';
+        else formatSpec = 'bestvideo+bestaudio/best';
     }
     
     if (!formatSpec) {
@@ -111,10 +114,16 @@ function resolveStreamUrls(ytDlpPath, config, url, formatId, userAgent, cookiesB
         let stdoutData = [];
         let stderrData = [];
 
+        const timeout = setTimeout(() => {
+            try { proc.kill('SIGTERM'); } catch (e) {}
+            reject(new Error('yt-dlp stream resolution timed out after 30 seconds'));
+        }, 30000);
+
         proc.stdout.on('data', chunk => stdoutData.push(chunk));
         proc.stderr.on('data', chunk => stderrData.push(chunk));
 
         proc.on('close', (code) => {
+            clearTimeout(timeout);
             const stdoutStr = Buffer.concat(stdoutData).toString('utf8');
             const stderrStr = Buffer.concat(stderrData).toString('utf8');
 
@@ -124,16 +133,20 @@ function resolveStreamUrls(ytDlpPath, config, url, formatId, userAgent, cookiesB
                 return reject(err);
             }
 
-            const lines = stdoutStr.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('WARNING:'));
+            const lines = stdoutStr.split('\n')
+                .map(l => l.trim())
+                .filter(l => l && !l.startsWith('WARNING:') && !l.startsWith('[download]') && !l.startsWith('[info]'));
             
-            if (lines.length >= 4) {
+            if (lines.length >= 4 && 
+                (lines[1].startsWith('http://') || lines[1].startsWith('https://')) &&
+                (lines[3].startsWith('http://') || lines[3].startsWith('https://'))) {
                 resolve({
                     videoFormatId: lines[0],
                     videoUrl: lines[1],
                     audioFormatId: lines[2],
                     audioUrl: lines[3]
                 });
-            } else if (lines.length >= 2) {
+            } else if (lines.length >= 2 && (lines[1].startsWith('http://') || lines[1].startsWith('https://'))) {
                 resolve({
                     videoFormatId: lines[0],
                     videoUrl: lines[1],
@@ -146,6 +159,7 @@ function resolveStreamUrls(ytDlpPath, config, url, formatId, userAgent, cookiesB
         });
 
         proc.on('error', (err) => {
+            clearTimeout(timeout);
             reject(err);
         });
     });
@@ -160,7 +174,6 @@ function parseYtDlpProgress(line) {
         return { isDestination: true };
     }
     
-    // 1. Percentage and size
     const percentMatch = content.match(/~?\s*([\d.]+)%\s+of\s+~?\s*([\d.]+)(KiB|MiB|GiB|B)/i);
     const speedMatch = content.match(/at\s+~?\s*([\d.]+)(KiB|MiB|GiB|B)\/s/i);
     
@@ -188,7 +201,6 @@ function parseYtDlpProgress(line) {
         return { completedLength, totalLength, downloadSpeed };
     }
     
-    // 2. Unknown total size
     const unknownSizeMatch = content.match(/~?\s*([\d.]+)(KiB|MiB|GiB|B)\s+at/i);
     if (unknownSizeMatch) {
         let completedVal = parseFloat(unknownSizeMatch[1]);

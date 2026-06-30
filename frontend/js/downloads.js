@@ -4,8 +4,8 @@ import { state, MAX_SPEED_POINTS } from './state.js';
 import { formatBytes, getFileName } from './format.js';
 import { renderDownloads, updateBadge } from './render.js';
 import { drawSpeedGraph } from './speedGraph.js';
+import { showToast } from './toast.js';
 
-// Pull the latest state from aria2, merge it onto persisted history, and render.
 export async function refreshDownloads() {
     try {
         const activeMerges = await callApi('/api/active-merges').catch(() => ({}));
@@ -81,7 +81,6 @@ export async function refreshDownloads() {
 
         const historyList = await callApi('/api/history').catch(() => []);
 
-        // Overlay fresh aria2 data on persisted history (history owns metadata).
         state.downloads = historyList.map(hItem => {
             const live = liveMap.get(hItem.gid);
             if (live) {
@@ -98,8 +97,7 @@ export async function refreshDownloads() {
                     uploadSpeed: live.uploadSpeed
                 };
             }
-            // YouTube/yt-dlp downloads are tracked entirely in server-side history,
-            // not in aria2. Preserve their live speed/progress from the history item.
+            // YouTube downloads run via yt-dlp, not aria2 — keep speed from history
             const isYtDownload = typeof hItem.gid === 'string' && hItem.gid.startsWith('youtube-');
             const isActiveYt = isYtDownload && (hItem.status === 'active' || hItem.status === 'merging');
             return {
@@ -108,7 +106,6 @@ export async function refreshDownloads() {
             };
         });
 
-        // Include any live items not yet persisted (rare timing window).
         liveMap.forEach((live, gid) => {
             if (!historyList.some(h => h.gid === gid)) state.downloads.push(live);
         });
@@ -132,7 +129,6 @@ export async function refreshDownloads() {
     }
 }
 
-// Load settings into state and populate the settings form.
 export async function loadSettings() {
     try {
         state.appConfig = await callApi('/api/settings');
@@ -158,7 +154,7 @@ export async function pauseDl(gid) {
         refreshDownloads();
     } catch (err) {
         console.error('Failed to pause download:', err);
-        alert(`Failed to pause download: ${err.message || err}`);
+        showToast('Pause Failed', err.message || err, 'error');
         throw err;
     }
 }
@@ -169,7 +165,7 @@ export async function resumeDl(gid) {
         refreshDownloads();
     } catch (err) {
         console.error('Failed to resume download:', err);
-        alert(`Failed to resume download: ${err.message || err}`);
+        showToast('Resume Failed', err.message || err, 'error');
         throw err;
     }
 }
@@ -208,9 +204,9 @@ export async function restartDl(gid) {
     try {
         const res = await callApi('/api/history/retry', { gid });
         if (res.success) refreshDownloads();
-        else alert('Failed to restart: ' + (res.error || 'Unknown error'));
+        else showToast('Restart Failed', res.error || 'Unknown error', 'error');
     } catch (e) {
-        alert('Failed to restart download.');
+        showToast('Restart Failed', 'Failed to restart download.', 'error');
         throw e;
     }
 }
@@ -222,9 +218,9 @@ export async function streamFile(gid) {
     const filepath = d.files && d.files[0] && d.files[0].path ? d.files[0].path : null;
     try {
         const data = await callApi('/api/stream', { filename, filepath, category: d.category, gid });
-        if (data.error) alert('Error: ' + data.error);
+        if (data.error) showToast('Streaming Error', data.error, 'error');
     } catch (e) {
-        alert('Failed to launch stream. Ensure the backend is running.');
+        showToast('Streaming Failed', 'Failed to launch stream. Ensure the backend is running.', 'error');
         throw e;
     }
 }
@@ -232,7 +228,7 @@ export async function streamFile(gid) {
 export async function showInFinder(gid) {
     const d = state.downloads.find(x => x.gid === gid);
     const filepath = d?.files?.[0]?.path;
-    if (!filepath) return alert('File path not found.');
+    if (!filepath) return showToast('File Not Found', 'The requested file path could not be located.', 'error');
     try {
         await callApi('/api/showInFinder', { filepath, filename: getFileName(d), category: d?.category, gid });
     } catch (e) {
@@ -246,7 +242,7 @@ export async function setGlobalSpeedLimit(speed) {
         await client.call('changeGlobalOption', [{ 'max-overall-download-limit': speed }]);
     } catch (err) {
         console.error('Failed to set global speed limit:', err);
-        alert(`Failed to change speed limit: ${err.message || err}`);
+        showToast('Speed Limit Error', err.message || err, 'error');
         throw err;
     }
 }

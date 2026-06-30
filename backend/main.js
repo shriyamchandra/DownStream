@@ -1,10 +1,33 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, dialog } = require('electron');
 const path = require('path');
+const fs = require('fs');
+const http = require('http');
 
-// Register downstream:// custom URL scheme so Chrome can launch the app
-// even when it is closed. Must be called before app.whenReady().
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+  if (app.isReady()) {
+    try {
+      dialog.showErrorBox('DownStream Fatal Error', err.stack || err.message);
+    } catch (e) {
+      console.error('Failed to show error dialog:', e);
+    }
+  }
+  app.quit();
+  setTimeout(() => process.exit(1), 1000);
+});
+
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  console.log('[Electron] Another instance is already running. Quitting.');
+  process.exit(0);
+}
+
+let mainWindow = null;
+let backend = null;
+let startupUrlParams = null;
+let isQuitting = false;
+
 if (process.defaultApp) {
-  // Dev mode: electron . downstream://
   if (process.argv.length >= 2) {
     app.setAsDefaultProtocolClient('downstream', process.execPath, [path.resolve(process.argv[1])]);
   }
@@ -12,13 +35,73 @@ if (process.defaultApp) {
   app.setAsDefaultProtocolClient('downstream');
 }
 
+function validateInterceptParams(params) {
+  if (!params || !params.url) return false;
+  try {
+    const parsed = new URL(params.url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return false;
+    }
+  } catch (e) {
+    return false;
+  }
+  
+  if (params.filename) {
+    const base = path.basename(params.filename);
+    if (base !== params.filename || params.filename.includes('..') || params.filename.includes('/') || params.filename.includes('\\')) {
+      return false;
+    }
+  }
+  return true;
+}
 
-// Start the backend server (Express on PORT or 3000 & spawns aria2c on ARIA2_PORT or 6800)
-const backend = require('./server.js');
+function handleProtocolUrl(urlStr) {
+  try {
+    const url = new URL(urlStr);
+    if (url.protocol === 'downstream:' && url.hostname === 'add') {
+      const params = Object.fromEntries(url.searchParams.entries());
+      if (!validateInterceptParams(params)) {
+        console.warn('Blocked invalid/suspicious deep-link URL:', urlStr);
+        return;
+      }
+      
+      if (backend && typeof backend.handleIntercept === 'function') {
+        backend.handleIntercept(params).catch(err => {
+          console.error('Failed to handle downstream add:', err);
+        });
+      } else {
+        startupUrlParams = params;
+      }
+      
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+      } else if (app.isReady()) {
+        createWindow();
+      }
+    }
+  } catch (e) {
+    console.error('Failed to parse deep link URL:', e);
+  }
+}
 
-let mainWindow;
+app.on('second-instance', (event, argv) => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+  const protocolUrl = argv.find(arg => arg.startsWith('downstream://'));
+  if (protocolUrl) {
+    handleProtocolUrl(protocolUrl);
+  }
+});
 
-const fs = require('fs');
+app.on('open-url', (event, urlStr) => {
+  event.preventDefault();
+  handleProtocolUrl(urlStr);
+});
 
 function setupNativeMessaging(app) {
   try {
@@ -57,13 +140,17 @@ function setupNativeMessaging(app) {
     const manifestJson = JSON.stringify(manifest, null, 2);
 
     targetSubdirs.forEach(subdir => {
+      const browserDir = path.dirname(path.join(homeDir, 'Library', 'Application Support', subdir));
+      if (!fs.existsSync(browserDir)) {
+        return;
+      }
+
       const hostsDir = path.join(homeDir, 'Library', 'Application Support', subdir);
       const targetPath = path.join(hostsDir, manifestFileName);
       try {
-        // Skip write if the manifest already exists with identical content
         if (fs.existsSync(targetPath)) {
           const existing = fs.readFileSync(targetPath, 'utf8');
-          if (existing === manifestJson) return; // already up to date
+          if (existing === manifestJson) return;
         }
 
         if (!fs.existsSync(hostsDir)) {
@@ -72,7 +159,6 @@ function setupNativeMessaging(app) {
         fs.writeFileSync(targetPath, manifestJson, 'utf8');
         console.log(`[Native Messaging] Registered host manifest in: ${targetPath}`);
       } catch (e) {
-        // Silently skip browsers that aren't installed (ENOENT on parent dir)
         if (e.code !== 'ENOENT') {
           console.error(`[Native Messaging] Failed to write manifest for ${subdir}:`, e.message);
         }
@@ -83,10 +169,35 @@ function setupNativeMessaging(app) {
   }
 }
 
+function pingServer(port) {
+  return new Promise((resolve) => {
+    const req = http.get(`http://localhost:${port}/api/ping`, (res) => {
+      resolve(res.statusCode === 200);
+    });
+    req.on('error', () => {
+      resolve(false);
+    });
+    req.setTimeout(1000, () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+}
+
+async function waitForServer(port, maxRetries = 20) {
+  for (let i = 0; i < maxRetries; i++) {
+    const ok = await pingServer(port);
+    if (ok) return true;
+    await new Promise(resolve => setTimeout(resolve, 200));
+  }
+  return false;
+}
+
 function createWindow() {
   if (backend && typeof backend.startSync === 'function') {
     backend.startSync(2500);
   }
+  
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 750,
@@ -96,20 +207,26 @@ function createWindow() {
       contextIsolation: true,
     },
   });
-  mainWindow.webContents.openDevTools();
 
-  // Give the server a moment to boot up, then load the frontend
   const loadPort = process.env.PORT || process.env.WEB_PORT || 3000;
   const loadUrl = `http://localhost:${loadPort}`;
-  setTimeout(() => {
-    mainWindow.loadURL(loadUrl).catch((err) => {
-      console.error('Failed to load page, retrying...', err);
-      // Retry once after another short delay if server was slow to start
-      setTimeout(() => {
-        mainWindow.loadURL(loadUrl).catch(console.error);
-      }, 1000);
-    });
-  }, 500);
+
+  waitForServer(loadPort).then((isReady) => {
+    if (!mainWindow) return;
+    
+    if (isReady) {
+      mainWindow.loadURL(loadUrl).catch((err) => {
+        console.error('Failed to load page:', err);
+      });
+    } else {
+      console.error('Backend server failed to start on port:', loadPort);
+      dialog.showErrorBox(
+        'Startup Error',
+        `The DownStream backend server failed to start on port ${loadPort}. Please check if the port is already in use by another process.`
+      );
+      app.quit();
+    }
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -120,10 +237,23 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  try {
+    backend = require('./server.js');
+    
+    if (startupUrlParams) {
+      backend.handleIntercept(startupUrlParams).catch(console.error);
+      startupUrlParams = null;
+    }
+  } catch (err) {
+    console.error('Fatal initialization error:', err);
+    dialog.showErrorBox('Initialization Error', `Failed to initialize the download server:\n\n${err.message}`);
+    app.quit();
+    return;
+  }
+
   setupNativeMessaging(app);
   createWindow();
 
-  // Listen for intercepts from backend server to bring the window to the front
   if (backend && backend.events) {
     backend.events.on('intercept', () => {
       if (mainWindow) {
@@ -141,58 +271,36 @@ app.whenReady().then(() => {
   });
 });
 
-// Handle downstream:// URL launched from Chrome extension (app already running)
-app.on('open-url', (event, urlStr) => {
+app.on('window-all-closed', () => {
+  app.quit();
+});
+
+app.on('before-quit', (event) => {
+  if (isQuitting) return;
+  isQuitting = true;
   event.preventDefault();
 
-  try {
-    const url = new URL(urlStr);
-    if (url.protocol === 'downstream:' && url.hostname === 'add') {
-      const params = Object.fromEntries(url.searchParams.entries());
-      // Trigger add using the backend's internal logic (no HTTP port needed)
-      if (backend && typeof backend.handleIntercept === 'function') {
-        backend.handleIntercept(params).catch(err => {
-          console.error('Failed to handle downstream add:', err);
-        });
-      }
-      // Focus window
-      if (mainWindow) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.show();
-        mainWindow.focus();
-      } else {
-        createWindow();
-      }
-      return;
-    }
-  } catch (e) {
-    // not an add url, fall through
-  }
+  console.log('[Electron] Initiating cleanup before exit...');
 
-  // Default behavior: just focus the window (for downstream://open etc.)
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
-  } else {
-    createWindow();
-  }
-});
-
-app.on('window-all-closed', () => {
-  // On macOS, keep app in dock but stop background sync timer to save CPU.
-  // On other platforms, quit the app completely.
-  if (backend && typeof backend.stopSync === 'function') {
-    backend.stopSync();
-  }
-  if (process.platform !== 'darwin') {
+  const cleanupTimeout = setTimeout(() => {
+    console.warn('[Electron] Cleanup timed out. Force quitting.');
     app.quit();
-  }
-});
+  }, 3000);
 
-// For macOS, quit when all windows are closed since we don't want a background daemon running
-app.on('will-quit', () => {
   if (backend && typeof backend.cleanup === 'function') {
-    backend.cleanup();
+    Promise.resolve(backend.cleanup())
+      .then(() => {
+        clearTimeout(cleanupTimeout);
+        console.log('[Electron] Cleanup completed successfully.');
+        app.quit();
+      })
+      .catch((err) => {
+        clearTimeout(cleanupTimeout);
+        console.error('[Electron] Error during cleanup:', err);
+        app.quit();
+      });
+  } else {
+    clearTimeout(cleanupTimeout);
+    app.quit();
   }
 });

@@ -22,10 +22,6 @@ const historyRoutes = require('./routes/history');
 const interceptRoutes = require('./routes/intercept');
 const createInterceptor = require('./lib/interceptor');
 
-// ── Composition root ──────────────────────────────────────────
-// Build each single-responsibility piece and inject its collaborators. Nothing
-// below reaches into another module's internals — they depend on the small
-// { call } / { notify } / { isWithin } / { items, save } interfaces only.
 const events = new EventEmitter();
 const config = createConfig();
 const pathGuard = createPathGuard(config);
@@ -35,10 +31,10 @@ const activeMerges = new Map();
 const mergesFilePath = path.join(config.projectRoot, 'active-merges.json');
 const streamUrlCache = new StreamUrlCache(50 * 1000);
 
-async function loadActiveMerges() {
+function loadActiveMerges() {
     try {
         if (fs.existsSync(mergesFilePath)) {
-            const fileData = await fs.promises.readFile(mergesFilePath, 'utf8');
+            const fileData = fs.readFileSync(mergesFilePath, 'utf8');
             const data = JSON.parse(fileData);
             let valid = 0, skipped = 0;
             for (const [k, v] of Object.entries(data)) {
@@ -52,7 +48,7 @@ async function loadActiveMerges() {
             }
             if (skipped > 0) {
                 console.log(`[ActiveMerges] Loaded ${valid} entries, skipped ${skipped} stale/invalid entries`);
-                await saveActiveMerges(); // Persist the cleaned-up state
+                saveActiveMerges();
             }
         }
     } catch (e) {
@@ -72,46 +68,13 @@ async function saveActiveMerges() {
 const activeYoutubeDownloads = new Map();
 
 
-const reservedFilenames = new Set();
-
-function getUniqueFilename(dir, baseName) {
-    let finalPath = path.join(dir, baseName);
-    const ext = path.extname(baseName);
-    const stem = baseName.slice(0, baseName.length - ext.length);
-    let counter = 1;
-    
-    while (true) {
-        if (reservedFilenames.has(finalPath)) {
-            const candidate = `${stem} (${counter})${ext}`;
-            finalPath = path.join(dir, candidate);
-            counter++;
-            continue;
-        }
-        
-        try {
-            // Attempt to atomically reserve the name on disk
-            const fd = fs.openSync(finalPath, 'wx');
-            fs.closeSync(fd);
-            reservedFilenames.add(finalPath);
-            return finalPath;
-        } catch (err) {
-            if (err.code === 'EEXIST') {
-                const candidate = `${stem} (${counter})${ext}`;
-                finalPath = path.join(dir, candidate);
-                counter++;
-            } else {
-                throw err;
-            }
-        }
-    }
-}
+const { getUniqueFilename, reservedFilenames } = require('./lib/filenameReservation');
 
 function startYoutubeDownload(gid, url, filename, formatId, chosenExt, referrer) {
     const item = history.items.find(x => x.gid === gid);
     if (!item) return;
 
-    // `filename` arrives WITH the extension (e.g. "My Video.mp4").
-    // Strip it to get a clean stem for the output template.
+    // filename includes extension; strip it for the yt-dlp output template
     const ext = chosenExt || 'mp4';
     const currentExt = path.extname(filename);          // ".mp4"
     const stem = currentExt ? filename.slice(0, -currentExt.length) : filename;  // "My Video"
@@ -132,7 +95,6 @@ function startYoutubeDownload(gid, url, filename, formatId, chosenExt, referrer)
         formatSpec = formatId ? `${formatId}+ba/best` : 'bestvideo+bestaudio/best';
     }
 
-    // Output template: use the stem + unique gid + .temp-yt. prefix before yt-dlp's own %(ext)s.
     const outputTemplate = path.join(config.data.downloadDir, `${stem}.${gid}.temp-yt.%(ext)s`);
 
     const args = [
@@ -266,17 +228,13 @@ function startYoutubeDownload(gid, url, filename, formatId, chosenExt, referrer)
         if (code === 0) {
             console.log(`[YouTube Download ${gid}] Completed successfully.`);
             
-            // The final filename the user expects (e.g. "My Video.mp4")
             const finalName = `${stem}.${ext}`;
-            
-            // yt-dlp should have produced "stem.gid.temp-yt.ext" after merge
             const expectedTemp = path.join(config.data.downloadDir, `${stem}.${gid}.temp-yt.${ext}`);
             let tempPath = null;
 
             if (fs.existsSync(expectedTemp)) {
                 tempPath = expectedTemp;
             } else {
-                // Glob for stem.gid.temp-yt.* files
                 try {
                     const dirFiles = fs.readdirSync(config.data.downloadDir);
                     const prefix = `${stem}.${gid}.temp-yt.`;
@@ -339,6 +297,8 @@ function startYoutubeDownload(gid, url, filename, formatId, chosenExt, referrer)
                 }
 
                 item.status = 'complete';
+                item.files = [{ path: finalPath }];
+                item.filename = path.basename(finalPath);
                 item.totalLength = finalSize;
                 item.completedLength = finalSize;
                 item.downloadSpeed = 0;
@@ -359,7 +319,7 @@ function startYoutubeDownload(gid, url, filename, formatId, chosenExt, referrer)
     });
 }
 
-// Pause any active/waiting YouTube downloads on startup
+// yt-dlp child processes don't survive restarts; mark in-flight YouTube items paused
 if (history && history.items) {
     let startupCleaned = false;
     history.items.forEach(item => {
@@ -377,13 +337,10 @@ loadActiveMerges();
 const processManager = createProcessManager(config);
 const sync = createSyncService({ rpc, history, config, activeMerges, saveActiveMerges, notifier });
 
-// Free ports + launch the aria2c engine before we start serving.
 processManager.start();
 
 const app = express();
 app.use(express.json());
-// Static assets are served before the origin guard so the UI loads normally;
-// only the /api/* surface is gated by CORS.
 app.use(express.static(path.join(config.projectRoot, 'frontend')));
 app.use(cors);
 app.use(requestLogger);
@@ -400,6 +357,14 @@ app.post('/api/qualities', async (req, res) => {
         const { url } = req.body;
         if (!url) {
             return res.status(400).json({ error: 'URL is required' });
+        }
+        try {
+            const parsed = new URL(url);
+            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                return res.status(400).json({ error: 'Invalid URL protocol. Only HTTP and HTTPS are supported.' });
+            }
+        } catch (e) {
+            return res.status(400).json({ error: 'Invalid URL format.' });
         }
 
         const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
@@ -488,55 +453,7 @@ app.post('/api/qualities', async (req, res) => {
                     .filter(f => !f.hasVideo && f.hasAudio && f.protocol.startsWith('http'))
                     .sort((a, b) => (b.filesize || 0) - (a.filesize || 0));
 
-                // Cache the best streamable URL for instant VLC playback
-                try {
-                    // Find the best audio format first
-                    const bestAudio = info.formats
-                        .filter(f => (!f.vcodec || f.vcodec === 'none') && f.acodec && f.acodec !== 'none' && f.url && typeof f.protocol === 'string' && f.protocol.startsWith('http'))
-                        .sort((a, b) => (b.filesize || b.filesize_approx || 0) - (a.filesize || a.filesize_approx || 0))[0];
 
-                    // Find the absolute best video format
-                    const bestVideo = info.formats
-                        .filter(f => f.vcodec && f.vcodec !== 'none' && f.url && typeof f.protocol === 'string' && f.protocol.startsWith('http'))
-                        .sort((a, b) => (b.height || 0) - (a.height || 0))[0];
-
-                    // Find the best progressive format
-                    const bestProgressive = info.formats
-                        .filter(f => f.vcodec && f.vcodec !== 'none' && f.acodec && f.acodec !== 'none' && f.url && typeof f.protocol === 'string' && f.protocol.startsWith('http'))
-                        .sort((a, b) => (b.height || 0) - (a.height || 0))[0];
-
-                    if (bestProgressive) {
-                        streamUrlCache.set(`${url}|progressive`, {
-                            url: bestProgressive.url,
-                            audioUrl: null
-                        });
-                        console.log(`[Qualities] Cached progressive fallback: ${bestProgressive.height}p`);
-                    }
-
-                    if (bestVideo) {
-                        const hasAudio = bestVideo.acodec && bestVideo.acodec !== 'none';
-                        const bestObj = {
-                            url: bestVideo.url,
-                            audioUrl: hasAudio ? null : (bestAudio ? bestAudio.url : null)
-                        };
-                        streamUrlCache.set(`${url}|best`, bestObj);
-                        streamUrlCache.set(url, bestObj);
-                        console.log(`[Qualities] Cached 'best' stream URL (Height: ${bestVideo.height}p, HasAudio: ${hasAudio})`);
-                    }
-
-                    // Cache each format specifically by formatId (including split formats)
-                    info.formats.forEach(f => {
-                        if (f.vcodec && f.vcodec !== 'none' && f.url && typeof f.protocol === 'string' && f.protocol.startsWith('http')) {
-                            const hasAudio = f.acodec && f.acodec !== 'none';
-                            streamUrlCache.set(`${url}|${f.format_id}`, {
-                                url: f.url,
-                                audioUrl: hasAudio ? null : (bestAudio ? bestAudio.url : null)
-                            });
-                        }
-                    });
-                } catch (cacheErr) {
-                    console.warn('[Qualities] Failed to cache stream URL:', cacheErr.message);
-                }
 
                 res.json({
                     success: true,
@@ -612,7 +529,6 @@ async function drainPendingIntercepts() {
   }
 }
 
-// Start checking in the background
 ensureAriaReady();
 
 let syncInterval = null;
@@ -630,33 +546,54 @@ function stopSync() {
     }
 }
 
-// Periodic aria2 <-> history reconciliation.
 startSync(2500);
 
-app.listen(config.webPort, () => {
+const server = app.listen(config.webPort, () => {
     console.log(`\n============================================`);
     console.log(`🚀 DownStream Web Manager is running!`);
     console.log(`👉 Open your browser to: http://localhost:${config.webPort}`);
     console.log(`============================================\n`);
 });
 
-// ── Shutdown ──────────────────────────────────────────────────
+server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+        const customErr = new Error(`Port ${config.webPort} is already in use by another process. Please close the other process and try again.`);
+        customErr.stack = err.stack;
+        throw customErr;
+    }
+    throw err;
+});
+
 function cleanup() {
     console.log('[Cleanup] Killing active YouTube downloads...');
+    const killPromises = [];
+
     for (const [gid, info] of activeYoutubeDownloads) {
         if (info.process) {
             info.isPausedIntentionally = true;
             try {
                 info.process.kill('SIGTERM');
+                killPromises.push(new Promise(resolve => {
+                    info.process.on('close', resolve);
+                    setTimeout(resolve, 1500);
+                }));
             } catch (err) {
                 console.error(`Failed to kill download ${gid}:`, err);
             }
         }
     }
-    processManager.cleanup();
+    
+    let ariaPromise = Promise.resolve();
+    if (processManager && typeof processManager.cleanup === 'function') {
+        ariaPromise = Promise.resolve(processManager.cleanup());
+    }
+    
+    return Promise.all([...killPromises, ariaPromise]).then(() => {
+        return new Promise(resolve => setTimeout(resolve, 500));
+    });
 }
 
-process.on('SIGINT', () => { cleanup(); process.exit(); });
-process.on('SIGTERM', () => { cleanup(); process.exit(); });
+process.on('SIGINT', () => { cleanup().then(() => process.exit(0)).catch(() => process.exit(1)); });
+process.on('SIGTERM', () => { cleanup().then(() => process.exit(0)).catch(() => process.exit(1)); });
 
 module.exports = { cleanup, events, handleIntercept, startSync, stopSync };

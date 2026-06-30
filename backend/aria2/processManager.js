@@ -1,15 +1,24 @@
-const { spawn, execSync } = require('child_process');
+const { spawn, execSync, execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const net = require('net');
+const { writeJsonAtomicSync } = require('../config/atomicWriter');
 
-function cleanPreviousInstance(config) {
+async function cleanPreviousInstance(config) {
     const pidFilePath = path.join(config.appDataDir, 'pids.json');
     if (!fs.existsSync(pidFilePath)) return;
 
     try {
-        const pids = JSON.parse(fs.readFileSync(pidFilePath, 'utf8'));
+        const fileContent = fs.readFileSync(pidFilePath, 'utf8');
+        const pids = JSON.parse(fileContent);
         
-        // Attempt clean shutdown first (SIGTERM)
+        // stale PID file — don't kill processes that may have reused these PIDs
+        if (pids.timestamp && Date.now() - pids.timestamp > 15 * 60 * 1000) {
+            console.log('[PID Manager] Stale PID file detected. Skipping signal termination.');
+            try { fs.unlinkSync(pidFilePath); } catch (e) {}
+            return;
+        }
+
         if (pids.backend) {
             try { process.kill(parseInt(pids.backend, 10), 'SIGTERM'); } catch (e) {}
         }
@@ -17,9 +26,8 @@ function cleanPreviousInstance(config) {
             try { process.kill(parseInt(pids.aria2, 10), 'SIGTERM'); } catch (e) {}
         }
 
-        // Wait up to 500ms for graceful shutdown
-        let start = Date.now();
-        while (Date.now() - start < 500) {
+        const deadline = Date.now() + 500;
+        while (Date.now() < deadline) {
             let backendAlive = false;
             let ariaAlive = false;
             if (pids.backend) {
@@ -29,9 +37,9 @@ function cleanPreviousInstance(config) {
                 try { process.kill(parseInt(pids.aria2, 10), 0); ariaAlive = true; } catch (e) {}
             }
             if (!backendAlive && !ariaAlive) break;
+            await new Promise(r => setTimeout(r, 50));
         }
 
-        // Force kill SIGKILL if still running
         if (pids.backend) {
             try {
                 process.kill(parseInt(pids.backend, 10), 0);
@@ -56,13 +64,16 @@ function cleanPreviousInstance(config) {
 function recordPids(config, backendPid, aria2Pid) {
     const pidFilePath = path.join(config.appDataDir, 'pids.json');
     try {
-        fs.writeFileSync(pidFilePath, JSON.stringify({ backend: backendPid, aria2: aria2Pid }));
+        writeJsonAtomicSync(pidFilePath, {
+            backend: backendPid,
+            aria2: aria2Pid,
+            timestamp: Date.now()
+        });
     } catch (e) {
         console.error('[PID Manager] Failed to write pids.json:', e);
     }
 }
 
-// Locate the aria2c binary: packaged resource, bundled bin/, PATH, then Homebrew.
 function locateAria2c(projectRoot) {
     const packagedPath = process.resourcesPath ? path.join(process.resourcesPath, 'aria2c') : '';
     const localPath = path.join(projectRoot, 'bin', 'aria2c');
@@ -70,7 +81,7 @@ function locateAria2c(projectRoot) {
     if (packagedPath && fs.existsSync(packagedPath)) return packagedPath;
     if (fs.existsSync(localPath)) return localPath;
     try {
-        return execSync('which aria2c').toString().trim();
+        return execFileSync('which', ['aria2c'], { stdio: 'pipe' }).toString().trim();
     } catch (e) {
         if (fs.existsSync('/opt/homebrew/bin/aria2c')) return '/opt/homebrew/bin/aria2c';
         if (fs.existsSync('/usr/local/bin/aria2c')) return '/usr/local/bin/aria2c';
@@ -78,7 +89,21 @@ function locateAria2c(projectRoot) {
     return 'aria2c';
 }
 
-// Manages the aria2c daemon lifecycle (port cleanup, spawn, graceful shutdown).
+function isPortFree(port) {
+    return new Promise(resolve => {
+        const server = net.createServer();
+        server.once('error', () => {
+            resolve(false);
+        });
+        server.once('listening', () => {
+            server.close(() => {
+                resolve(true);
+            });
+        });
+        server.listen(port, '127.0.0.1');
+    });
+}
+
 module.exports = function createProcessManager(config) {
     let ariaProcess = null;
     let isShuttingDown = false;
@@ -86,33 +111,19 @@ module.exports = function createProcessManager(config) {
     const MAX_RESTART_ATTEMPTS = 5;
     const BASE_RESTART_DELAY_MS = 1000;
 
-    // Non-blocking port wait: polls with setTimeout instead of blocking the event loop.
-    function waitForPortFree(port, timeoutMs) {
-        return new Promise(resolve => {
-            const deadline = Date.now() + timeoutMs;
-            function check() {
-                try {
-                    execSync(`lsof -i :${port}`, { stdio: 'ignore' });
-                    // Port still in use — try again if we have time
-                    if (Date.now() < deadline) {
-                        setTimeout(check, 100);
-                    } else {
-                        resolve(); // timed out, proceed anyway
-                    }
-                } catch (e) {
-                    resolve(); // lsof returned non-zero → port is free
-                }
-            }
-            check();
-        });
+    async function waitForPortFree(port, timeoutMs) {
+        const deadline = Date.now() + timeoutMs;
+        while (Date.now() < deadline) {
+            const free = await isPortFree(port);
+            if (free) return;
+            await new Promise(r => setTimeout(r, 100));
+        }
     }
 
     async function start() {
         isShuttingDown = false;
-        // Free our ports first so a stale instance can't block startup.
-        cleanPreviousInstance(config);
-
-        // Wait up to 2 seconds for port to become free (non-blocking)
+        restartAttempts = 0;
+        await cleanPreviousInstance(config);
         await waitForPortFree(config.aria2Port, 2000);
 
         const aria2cPath = locateAria2c(config.projectRoot);
@@ -135,7 +146,6 @@ module.exports = function createProcessManager(config) {
         console.log(`Starting aria2c: ${aria2cPath} ${args.join(' ')}`);
         ariaProcess = spawn(aria2cPath, args, { stdio: 'inherit' });
 
-        // Record our current PIDs
         recordPids(config, process.pid, ariaProcess.pid);
 
         ariaProcess.on('error', (err) => {
@@ -171,7 +181,6 @@ module.exports = function createProcessManager(config) {
             }, delay);
         });
 
-        // Reset the restart counter after aria2 has been running stably for 30s
         setTimeout(() => {
             if (ariaProcess && !ariaProcess.killed && !isShuttingDown) {
                 restartAttempts = 0;
@@ -189,16 +198,28 @@ module.exports = function createProcessManager(config) {
             fs.unlinkSync(pidFilePath);
         } catch (e) {}
 
-        if (!ariaProcess) return;
-        try {
-            ariaProcess.kill('SIGINT');
-            const killTimer = setTimeout(() => {
-                try { ariaProcess.kill('SIGKILL'); } catch (e) { /* ignore on shutdown */ }
-            }, 1500);
-            ariaProcess.once('exit', () => clearTimeout(killTimer));
-        } catch (e) {
-            console.error('Error killing aria2c process:', e);
+        if (!ariaProcess || ariaProcess.killed || ariaProcess.exitCode !== null) {
+            return Promise.resolve();
         }
+
+        return new Promise(resolve => {
+            try {
+                const killTimer = setTimeout(() => {
+                    try { ariaProcess.kill('SIGKILL'); } catch (e) { /* ignore on shutdown */ }
+                    resolve();
+                }, 1500);
+                
+                ariaProcess.once('exit', () => {
+                    clearTimeout(killTimer);
+                    resolve();
+                });
+                
+                ariaProcess.kill('SIGINT');
+            } catch (e) {
+                console.error('Error killing aria2c process:', e);
+                resolve();
+            }
+        });
     }
 
     return { start, cleanup };

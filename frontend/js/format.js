@@ -1,8 +1,6 @@
-// Pure presentation helpers and classifiers — no app state, no DOM.
 import { VIDEO_EXTS, getFilenameFromUrl, getFileCategory } from './shared-constants.js';
 
-// Escape untrusted text (filenames, URLs, error messages — all attacker-influenced
-// via the download source) before interpolating into innerHTML, to prevent XSS.
+// filenames/URLs come from download sources — escape before innerHTML
 export function escapeHtml(str) {
     return String(str ?? '')
         .replace(/&/g, '&amp;')
@@ -80,7 +78,7 @@ export function getFileIconClass(filename) {
     if (cat === 'archive') return 'zip';
     if (ext === 'pdf') return 'pdf';
     if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp'].includes(ext)) return 'image';
-    return 'doc'; // default
+    return 'doc';
 }
 
 export function getFileIconText(filename) {
@@ -89,7 +87,6 @@ export function getFileIconText(filename) {
     return 'FILE';
 }
 
-// Inline SVG action icons.
 export const iconPause = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>`;
 export const iconPlay = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`;
 export const iconCancel = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;

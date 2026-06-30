@@ -1,6 +1,5 @@
 import { _log } from './env.js';
 
-// Talks to the aria2 engine via JSON-RPC WebSocket.
 class Aria2Client {
     constructor() {
         const ariaPort = (window.ARIA2_PORT || 6800);
@@ -14,8 +13,6 @@ class Aria2Client {
             if (data.id && this.callbacks[data.id]) {
                 const { resolve, reject } = this.callbacks[data.id];
                 delete this.callbacks[data.id];
-                // Reject on RPC errors so callers' .catch() works (otherwise an
-                // error object would be spread into an array and throw).
                 if (data.error) reject(data.error);
                 else resolve(data.result);
             } else if (data.method && this.onMessage) {
@@ -56,5 +53,4 @@ class Aria2Client {
     }
 }
 
-// Single shared client instance.
 export const client = new Aria2Client();

@@ -6,7 +6,6 @@ import {
     iconPause, iconPlay, iconCancel, iconTrash, iconRestart, iconFolder
 } from './format.js';
 
-// Update a navbar count badge.
 export function updateBadge(id, count) {
     const badge = document.getElementById(id);
     if (!badge) return;
@@ -18,7 +17,6 @@ export function updateBadge(id, count) {
     }
 }
 
-// Build the expanded-row detail panel (files, peers, error, metadata).
 export function getDetailsHtml(d) {
     const addedStr = d.addedDate ? new Date(d.addedDate).toLocaleString() : 'Unknown';
     const completedStr = d.completedDate ? new Date(d.completedDate).toLocaleString() : '';
@@ -117,7 +115,6 @@ export function getDetailsHtml(d) {
     `;
 }
 
-// Build the action-button cluster for a download row.
 function actionsHtml(d, canStream, canShowInFinder) {
     return `
         ${d.status === 'active' ? `<button class="btn-icon-small" data-action="pause" data-gid="${d.gid}" title="Pause">${iconPause}</button>` : ''}
@@ -130,7 +127,6 @@ function actionsHtml(d, canStream, canShowInFinder) {
     `;
 }
 
-// Apply the sidebar filter, search, and sort to the download list.
 function getFilteredDownloads() {
     let list = state.downloads;
 
@@ -191,7 +187,6 @@ export function renderDownloads() {
     const oldGidString = list.dataset.gidOrder || '';
 
     if (currentGidString !== oldGidString) {
-        // Full re-render when the set/order of rows changed.
         let html = '';
         filteredDownloads.forEach(d => {
             const total = parseInt(d.totalLength) || 0;
@@ -237,7 +232,6 @@ export function renderDownloads() {
         list.innerHTML = html;
         list.dataset.gidOrder = currentGidString;
     } else {
-        // Fast in-place updates when only values changed.
         filteredDownloads.forEach(d => {
             const row = document.getElementById(`dl-${d.gid}`);
             if (!row) return;
@@ -279,7 +273,6 @@ export function renderDownloads() {
                 speedSpan.innerHTML = speedInner;
             }
 
-            // Rebuild actions when status or streamability changes.
             const actionsContainer = row.querySelector('.row-actions');
             const streamableFlag = canStream ? '1' : '0';
             if (actionsContainer && (actionsContainer.dataset.status !== d.status || actionsContainer.dataset.streamable !== streamableFlag)) {
@@ -288,7 +281,6 @@ export function renderDownloads() {
                 actionsContainer.dataset.streamable = streamableFlag;
             }
 
-            // Expanded/collapsed details.
             const isExpanded = state.expandedGids.has(d.gid);
             const detailsContainer = row.querySelector('.row-details');
 
@@ -297,7 +289,6 @@ export function renderDownloads() {
                 if (!detailsContainer) {
                     row.insertAdjacentHTML('beforeend', getDetailsHtml(d));
                 } else {
-                    // Update in place to avoid re-triggering the entrance animation.
                     if (d.status === 'active') {
                         const conns = d.connections || 0;
                         const seeders = d.numSeeders !== undefined ? ` · Seeds: ${d.numSeeders}` : '';

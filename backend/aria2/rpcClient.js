@@ -1,9 +1,5 @@
 const http = require('http');
 
-// Thin JSON-RPC client for the aria2 daemon. Resolves the full RPC response
-// object ({ result } or { error }); callers branch on response.error. This is
-// the single abstraction the download/sync logic depends on, so the transport
-// can change without touching them.
 module.exports = function createRpcClient({ host = 'localhost', port }) {
     function call(method, params) {
         return new Promise((resolve, reject) => {
@@ -24,12 +20,29 @@ module.exports = function createRpcClient({ host = 'localhost', port }) {
                     'Content-Length': Buffer.byteLength(payload)
                 }
             }, (res) => {
+                if (res.statusCode !== 200) {
+                    reject(new Error(`aria2 RPC HTTP status: ${res.statusCode}`));
+                    res.resume();
+                    return;
+                }
+
                 let data = '';
-                res.on('data', chunk => data += chunk);
+                res.on('data', chunk => {
+                    data += chunk;
+                    if (data.length > 5 * 1024 * 1024) { // 5MB safety limit
+                        req.destroy();
+                        reject(new Error('aria2 RPC response size exceeded 5MB safety limit'));
+                    }
+                });
                 res.on('end', () => {
                     try { resolve(JSON.parse(data)); }
                     catch (e) { reject(e); }
                 });
+            });
+
+            req.setTimeout(5000, () => {
+                req.destroy();
+                reject(new Error(`aria2 RPC timeout: ${method}`));
             });
 
             req.on('error', reject);

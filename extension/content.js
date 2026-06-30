@@ -26,8 +26,6 @@
     }
   }
 
-  /* ── Video-site detection ────────────────────────────────────── */
-
   const VIDEO_SITES = [
     { test: /youtube\.com\/watch/i,    title: () => document.title.replace(/ - YouTube$/, '') },
     { test: /youtube\.com\/shorts\//i, title: () => document.title.replace(/ - YouTube$/, '') },
@@ -52,7 +50,6 @@
   function isVideoPage() {
     if (getSiteMatch()) return true;
 
-    // Ignore known non-video SPA feeds and portals (social media, news) to prevent false FAB injection
     const host = location.hostname.toLowerCase();
     const blacklist = [
         'facebook.com', 'twitter.com', 'x.com', 'instagram.com', 'reddit.com',
@@ -63,7 +60,6 @@
         return false;
     }
 
-    // Check for a dominant <video> element (> 480×360 and > 25% of viewport)
     for (const v of document.querySelectorAll('video')) {
       const r = v.getBoundingClientRect();
       const area = r.width * r.height;
@@ -94,13 +90,10 @@
     return document.title || null;
   }
 
-  /* ── Floating Action Button ──────────────────────────────────── */
-
   function injectFAB() {
     if (document.getElementById(FAB_ID)) return;
     if (!isVideoPage() && !isDirectMediaUrl()) return;
 
-    // Skip DownStream's own UI
     if (EXCLUDED_PORTS.includes(location.port)) return;
     if (!location.protocol.startsWith('http')) return;
 
@@ -108,7 +101,6 @@
     const isDirect = isDirectMediaUrl();
     const label = isDirect ? 'Download File' : 'Download & Stream';
 
-    // Pre-fetch qualities in background immediately for video watch pages
     if (getSiteMatch()) {
       const urlToFetch = location.href;
       qualitiesPromise = new Promise((resolve, reject) => {
@@ -155,7 +147,6 @@
         </div>
       </div>`;
 
-    // Wire events
     wrap.querySelector('.ds-fab-btn--dl').addEventListener('click', () => {
       pauseSiteVideo();
       if (getSiteMatch()) {
@@ -183,7 +174,6 @@
     document.body.appendChild(wrap);
     fab = wrap;
 
-    // Enter animation
     requestAnimationFrame(() => wrap.classList.add('ds-fab--visible'));
   }
 
@@ -261,7 +251,6 @@
     overlay.querySelector('#ds-modal-close-btn').addEventListener('click', closeModal);
     overlay.querySelector('#ds-modal-cancel-btn').addEventListener('click', closeModal);
 
-    // If background fetch wasn't initialized or failed, start it now
     if (!qualitiesPromise) {
       const urlToFetch = location.href;
       qualitiesPromise = new Promise((resolve, reject) => {
@@ -284,7 +273,6 @@
       const { formats } = data;
       const { progressive = [], videoOnly = [], audioOnly = [] } = formats || {};
 
-      // Combine progressive and videoOnly for the "Video" tab
       const combinedVideo = [];
       progressive.forEach(f => {
         combinedVideo.push({ ...f, isSplit: false });
@@ -293,7 +281,6 @@
         combinedVideo.push({ ...f, isSplit: true });
       });
 
-      // Sort: height descending, progressive first, then mp4 first
       combinedVideo.sort((a, b) => {
         if (b.height !== a.height) {
           return b.height - a.height;
@@ -306,7 +293,6 @@
         return 0;
       });
 
-      // Deduplicate by resolution height
       const seenHeights = new Set();
       const uniqueCombinedVideo = [];
       for (const f of combinedVideo) {
@@ -391,7 +377,6 @@
           isSplit: selectedFormat.isSplit
         });
 
-        // Show brief confirmation instead of closing
         const origText = dlBtn.textContent;
         dlBtn.textContent = '✓ Sent!';
         dlBtn.disabled = true;
@@ -422,7 +407,6 @@
             formatExt: selectedFormat.ext,
             isSplit: selectedFormat.isSplit
           }, () => {
-            // Restore button text
             streamBtn.textContent = origText;
             streamBtn.disabled = false;
           });
@@ -473,8 +457,6 @@
     }).join('');
   }
 
-  /* ── SVG helpers ─────────────────────────────────────────────── */
-
   function downloadSvg() {
     return `<svg class="ds-fab-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
       <path d="M10 3v10m0 0l-3.5-3.5M10 13l3.5-3.5M4 17h12"/></svg>`;
@@ -491,12 +473,8 @@
     </svg>`;
   }
 
-  /* ── Utilities ───────────────────────────────────────────────── */
-
   function esc(s) { const d = document.createElement('span'); d.textContent = s; return d.innerHTML; }
   function trunc(s, n) { return s.length > n ? s.slice(0, n - 1) + '\u2026' : s; }
-
-  /* ── SPA Navigation Handling ─────────────────────────────────── */
 
   function check() {
     if (location.href !== currentHref) {
@@ -521,7 +499,6 @@
     window.addEventListener('popstate', () => setTimeout(check, 300));
   }
 
-  /* ── Link intercepting ───────────────────────────────────────── */
   const knownExtensions = [
       'mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv', 'm4v', '3gp', 'ts', 'mpg', 'mpeg',
       'mp3', 'flac', 'wav', 'ogg', 'm4a', 'aac', 'wma', 'opus', 'alac',
@@ -550,11 +527,8 @@
   }
 
   const clickInterceptExtensions = [
-      // Archive / Compression
       'zip', 'rar', 'tar', 'gz', '7z', 'bz2', 'xz', 'iso', 'img', 'cab', 'z', 'jar',
-      // Disk Images & Installers & Executables
       'dmg', 'pkg', 'bin', 'exe', 'msi', 'apk', 'app',
-      // Torrents
       'torrent'
   ];
 
@@ -567,7 +541,7 @@
 
   document.addEventListener('click', (e) => {
       if (e.defaultPrevented) return;
-      if (!chrome.runtime?.id) return; // Context dead, let browser handle
+      if (!chrome.runtime?.id) return;
 
       const anchor = e.target.closest('a[href]');
       if (!anchor) return;
@@ -575,7 +549,6 @@
       const href = anchor.href;
       if (!href || href.startsWith('javascript:') || href.startsWith('mailto:') || href.startsWith('tel:')) return;
 
-      // Skip local/dashboard links
       try {
           const parsed = new URL(href);
           if (EXCLUDED_PORTS.includes(parsed.port) || parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') return;
@@ -583,10 +556,7 @@
           return;
       }
 
-      // Only left click without modifier keys
       if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
-
-      // Check target="_blank"
       if (anchor.target === '_blank') return;
 
       if (!isClickInterceptAnchor(anchor, href)) return;
@@ -603,7 +573,6 @@
       }, (response) => {
           if (!response || !response.ok) {
               console.warn('[Aria2] Extension failed to intercept click, falling back to browser:', response?.error);
-              // Programmatic click bypass fallback
               anchor.setAttribute('data-ds-bypass', 'true');
               anchor.click();
               setTimeout(() => {
@@ -646,8 +615,6 @@
       clearTimeout(toast._timeout);
       toast._timeout = setTimeout(() => { toast.style.opacity = '0'; }, 3000);
   }
-
-  /* ── Bootstrap ───────────────────────────────────────────────── */
 
   function boot() {
     if (!location.protocol.startsWith('http')) return;

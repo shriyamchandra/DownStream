@@ -3,15 +3,13 @@ import { callApi } from './api.js';
 import { state } from './state.js';
 import { applyTheme } from './theme.js';
 import { renderDownloads } from './render.js';
+import { showToast } from './toast.js';
 import {
     refreshDownloads, loadSettings,
     toggleExpand, pauseDl, resumeDl, deleteDownload, restartDl, streamFile, showInFinder, setGlobalSpeedLimit
 } from './downloads.js';
 
-// Wire up all DOM event listeners. Called once on startup (DOM is ready because
-// the entry script is an ES module, which defers execution).
 export function initEvents() {
-    // Sidebar navigation (filters + settings view toggle).
     document.querySelectorAll('.nav-item').forEach(item => {
         item.addEventListener('click', (e) => {
             e.preventDefault();
@@ -36,7 +34,6 @@ export function initEvents() {
         });
     });
 
-    // Save settings.
     const saveSettingsBtn = document.getElementById('saveSettingsBtn');
     if (saveSettingsBtn) {
         saveSettingsBtn.addEventListener('click', async () => {
@@ -54,17 +51,18 @@ export function initEvents() {
                     localStorage.setItem('appTheme', preferredTheme);
                     applyTheme(preferredTheme);
                     await client.call('changeGlobalOption', [{ dir: downloadDir }]);
-                    alert('Settings saved successfully!');
+                    showToast('Settings Saved', 'Your configuration was successfully updated.', 'success');
+                } else {
+                    showToast('Error Saving Settings', data.error || 'Failed to save settings.', 'error');
                 }
             } catch (e) {
-                alert('Failed to save settings.');
+                showToast('Error Saving Settings', e.message || 'Failed to save settings.', 'error');
             } finally {
                 saveSettingsBtn.disabled = false;
             }
         });
     }
 
-    // Instant theme preview on change
     const prefTheme = document.getElementById('prefTheme');
     if (prefTheme) {
         prefTheme.addEventListener('change', (e) => {
@@ -72,7 +70,6 @@ export function initEvents() {
         });
     }
 
-    // Add URL(s).
     const addBtn = document.getElementById('addBtn');
     if (addBtn) {
         addBtn.addEventListener('click', async () => {
@@ -98,7 +95,7 @@ export function initEvents() {
                     await client.call('addUri', [[url], options]);
                 } catch (err) {
                     console.error('Failed to add URI:', err);
-                    alert(`Failed to add download URL: ${url}\nError: ${err.message || err}`);
+                    showToast('Failed to Add Download', `Error adding URL ${url.substring(0, 30)}...: ${err.message || err}`, 'error');
                 }
             }
 
@@ -109,7 +106,6 @@ export function initEvents() {
         });
     }
 
-    // Drag-and-drop .torrent support.
     const dropZone = document.getElementById('dropZone');
     const dropOverlay = document.getElementById('dropOverlay');
     if (dropZone && dropOverlay) {
@@ -135,18 +131,17 @@ export function initEvents() {
                             refreshDownloads();
                         } catch (err) {
                             console.error('Failed to add Torrent:', err);
-                            alert(`Failed to add torrent: ${err.message || err}`);
+                            showToast('Failed to Add Torrent', err.message || err, 'error');
                         }
                     };
                     reader.readAsDataURL(file);
                 } else {
-                    alert('Please drop a valid .torrent file.');
+                    showToast('Invalid File Type', 'Please drop a valid .torrent file.', 'error');
                 }
             }
         });
     }
 
-    // Toolbar: search, sort, clear history.
     document.getElementById('searchBar').addEventListener('input', renderDownloads);
     document.getElementById('sortSelect').addEventListener('change', renderDownloads);
 
@@ -168,7 +163,6 @@ export function initEvents() {
         });
     }
 
-    // Speed Limit change listener.
     const speedLimitSelect = document.getElementById('speedLimitSelect');
     if (speedLimitSelect) {
         speedLimitSelect.addEventListener('change', async (e) => {
@@ -184,7 +178,6 @@ export function initEvents() {
         });
     }
 
-    // Event delegation for row actions inside the downloads list.
     const downloadsList = document.getElementById('downloadsList');
     if (downloadsList) {
         downloadsList.addEventListener('click', async (e) => {
@@ -200,7 +193,6 @@ export function initEvents() {
                 return;
             }
 
-            // Rapid-clicking protection for buttons
             const isButton = targetAction.tagName === 'BUTTON';
             if (isButton) {
                 if (targetAction.disabled) return;

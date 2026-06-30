@@ -6,8 +6,6 @@ const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 
 const ACTIVE_STATUSES = ['active', 'waiting', 'paused'];
 
-// History endpoints: list, clear finished entries, delete (with optional file
-// removal), and retry a failed/removed download from scratch.
 module.exports = function historyRoutes({ rpc, history, config, pathGuard, activeMerges, saveActiveMerges, activeYoutubeDownloads, startYoutubeDownload }) {
     const router = express.Router();
 
@@ -41,7 +39,6 @@ module.exports = function historyRoutes({ rpc, history, config, pathGuard, activ
                         activeYoutubeDownloads.delete(gid);
                     }
                 }
-                // Clean up any .temp-yt.* files for this item
                 const currentExt = path.extname(item.filename);
                 const stem = currentExt ? item.filename.slice(0, -currentExt.length) : item.filename;
                 try {
@@ -54,7 +51,6 @@ module.exports = function historyRoutes({ rpc, history, config, pathGuard, activ
             } else if (gid.startsWith('merged-') && activeMerges && activeMerges.has(gid)) {
                 const info = activeMerges.get(gid);
                 
-                // Cancel/remove both segments
                 if (info.videoGid) {
                     await rpc.call('remove', [info.videoGid]).catch(() => {});
                     await rpc.call('removeDownloadResult', [info.videoGid]).catch(() => {});
@@ -64,7 +60,6 @@ module.exports = function historyRoutes({ rpc, history, config, pathGuard, activ
                     await rpc.call('removeDownloadResult', [info.audioGid]).catch(() => {});
                 }
 
-                // Delete temporary video/audio files
                 const fs = require('fs');
                 if (info.myFile) {
                     const videoPath = path.join(info.dir, info.myFile);
@@ -77,7 +72,6 @@ module.exports = function historyRoutes({ rpc, history, config, pathGuard, activ
                     if (fs.existsSync(audioPath + '.aria2')) fs.unlinkSync(audioPath + '.aria2');
                 }
 
-                // Clean active merges Map
                 if (info.videoGid) activeMerges.delete(info.videoGid);
                 if (info.audioGid) activeMerges.delete(info.audioGid);
                 activeMerges.delete(info.mergedGid);
@@ -99,7 +93,6 @@ module.exports = function historyRoutes({ rpc, history, config, pathGuard, activ
                 filepaths = item.files.map(f => f.path).filter(p => p);
             }
             if (filepaths.length === 0) {
-                // Resolve with category subfolder when available
                 const baseDir = (item.category)
                     ? path.join(config.data.downloadDir, item.category)
                     : (item.dir || config.data.downloadDir);
@@ -125,8 +118,7 @@ module.exports = function historyRoutes({ rpc, history, config, pathGuard, activ
             });
         }
 
-        // Re-resolve by gid: the sync loop may have mutated the list during the
-        // await above, so the original index can no longer be trusted.
+        // re-find index — sync loop may have mutated the list during the await above
         const delIndex = history.items.findIndex(x => x.gid === gid);
         if (delIndex !== -1) history.items.splice(delIndex, 1);
         history.save();
@@ -144,7 +136,6 @@ module.exports = function historyRoutes({ rpc, history, config, pathGuard, activ
 
         if (gid.startsWith('youtube-')) {
             try {
-                // Delete old partial .temp-yt.* files
                 const currentExt = path.extname(item.filename);
                 const stem = currentExt ? item.filename.slice(0, -currentExt.length) : item.filename;
                 try {
@@ -155,7 +146,6 @@ module.exports = function historyRoutes({ rpc, history, config, pathGuard, activ
                     });
                 } catch (e) {}
                 
-                // Restart download fresh
                 item.status = 'active';
                 item.completedLength = 0;
                 item.downloadSpeed = 0;
@@ -184,10 +174,7 @@ module.exports = function historyRoutes({ rpc, history, config, pathGuard, activ
                 options.dir = config.data.downloadDir;
             }
 
-            // A retry must start from byte 0. If a stale partial file and its
-            // .aria2 control file are left on disk, aria2 (-c/--continue) tries to
-            // RESUME them — which fails on servers without range support, so the
-            // "restart" never actually restarts. Clear them first.
+            // delete partials first — aria2 -c would resume instead of restarting
             const cleanupTargets = [];
             if (item.files && item.files.length > 0) {
                 item.files.forEach(f => { if (f.path) cleanupTargets.push(f.path); });
@@ -199,7 +186,7 @@ module.exports = function historyRoutes({ rpc, history, config, pathGuard, activ
             }
             [...new Set(cleanupTargets)].forEach(fp => {
                 try {
-                    if (!pathGuard.isWithin(fp)) return; // stay inside download dir
+                    if (!pathGuard.isWithin(fp)) return;
                     if (fs.existsSync(fp) && fs.statSync(fp).isFile()) fs.unlinkSync(fp);
                     if (fs.existsSync(fp + '.aria2')) fs.unlinkSync(fp + '.aria2');
                 } catch (e) {
@@ -207,7 +194,6 @@ module.exports = function historyRoutes({ rpc, history, config, pathGuard, activ
                 }
             });
 
-            // Force a fresh download even if the output file still exists.
             options.allowOverwrite = 'true';
             options.continue = 'false';
 
@@ -216,7 +202,6 @@ module.exports = function historyRoutes({ rpc, history, config, pathGuard, activ
                 return res.status(500).json({ error: response.error.message });
             }
 
-            // Re-resolve by gid: the list may have been mutated during the await.
             const retryIndex = history.items.findIndex(x => x.gid === gid);
             if (retryIndex !== -1) history.items.splice(retryIndex, 1);
             history.save();

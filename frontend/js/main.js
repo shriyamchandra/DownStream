@@ -1,5 +1,4 @@
-// Entry point: apply theme, wire up the UI, and connect to the aria2 engine.
-import './env.js'; // installs global error handlers
+import './env.js';
 import { initTheme } from './theme.js';
 import { client } from './transport.js';
 import { callApi } from './api.js';
@@ -21,19 +20,16 @@ function startPolling() {
     refreshInterval = setInterval(refreshDownloads, interval);
 }
 
-// On (re)connect, load settings, render once, then poll for live updates.
 client.onConnect = () => {
     loadSettings();
     refreshDownloads();
     startPolling();
 };
 
-// Throttle polling when the window loses / gains visibility.
 document.addEventListener('visibilitychange', () => {
     if (refreshInterval) startPolling();
 });
 
-// Push notifications from aria2 — refresh immediately, and toast on completion.
 client.onMessage = async (data) => {
     if (data.method && data.method.startsWith('aria2.onDownload')) {
         refreshDownloads();

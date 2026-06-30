@@ -1,4 +1,3 @@
-// Light/dark/system theme management.
 export function applyTheme(theme) {
     const root = document.documentElement;
     if (theme === 'light') {
@@ -12,7 +11,6 @@ export function applyTheme(theme) {
     }
 }
 
-// Apply the saved theme on startup.
 export function initTheme() {
     applyTheme(localStorage.getItem('appTheme') || 'system');
 }

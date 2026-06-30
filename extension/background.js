@@ -1,19 +1,12 @@
 const defaultInterceptTypes = [
-    // Video
     'mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv', 'm4v', '3gp', 'ts', 'mpg', 'mpeg',
-    // Audio
     'mp3', 'flac', 'wav', 'ogg', 'm4a', 'aac', 'wma', 'opus', 'alac',
-    // Archive / Compression
     'zip', 'rar', 'tar', 'gz', '7z', 'bz2', 'xz', 'iso', 'img', 'cab', 'z', 'jar',
-    // Disk Images & Installers & Executables
     'dmg', 'pkg', 'bin', 'exe', 'msi', 'apk', 'app',
-    // Documents & E-books
     'pdf', 'epub', 'mobi', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
-    // Torrents
     'torrent'
 ];
 
-// Deduplication: don't send same URL twice within 5s
 const recentlyHandled = new Map();
 
 function alreadyHandled(url) {
@@ -129,7 +122,6 @@ chrome.runtime.onInstalled.addListener(() => {
     console.log('[Aria2] Extension installed/updated, defaults set.');
 });
 
-// ── Core: send to DownStream app ──────────────────────────────
 async function sendToAria2(url, filename, referrer, cookiesString = '') {
     if (recentlyHandled.has(url) && Date.now() - recentlyHandled.get(url) < 5000) {
         console.log('[Aria2] Dedup skip:', url);
@@ -167,7 +159,6 @@ async function sendToAria2(url, filename, referrer, cookiesString = '') {
             if (tab && tab.id) helperTabId = tab.id;
         } catch (e) {}
 
-        // Close helper tab quickly to prevent navigation to Chrome error page
         await new Promise(r => setTimeout(r, 500));
         if (helperTabId) {
             try {
@@ -175,7 +166,6 @@ async function sendToAria2(url, filename, referrer, cookiesString = '') {
             } catch (e) {}
         }
 
-        // Give the app an additional 2 seconds to launch and start listening
         await new Promise(r => setTimeout(r, 2000));
 
         try {
@@ -193,7 +183,6 @@ async function sendToAria2(url, filename, referrer, cookiesString = '') {
     }
 }
 
-// ── Strategy 1: Content script sends explicit download clicks ─
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'DOWNLOAD') {
         const referrer = sender.tab ? sender.tab.url : '';
@@ -228,7 +217,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 sendResponse({ ok: false, error: String(err) });
             });
         
-        return true; // async response
+        return true;
     }
     
     if (msg.type === 'GET_QUALITIES') {
@@ -252,7 +241,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 sendResponse({ ok: false, error: String(err) });
             });
         
-        return true; // async response
+        return true;
     }
 
     if (msg.type === 'GET_DETECTED_STREAMS') {
@@ -262,7 +251,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
 });
 
-// ── Strategy 2: Logger onCreated ──────────────────────────────
 chrome.downloads.onCreated.addListener((item) => {
     console.log('[Aria2] onCreated logged:', item.url, '| mime:', item.mime, '| state:', item.state);
 });
@@ -303,7 +291,6 @@ async function getDownloadMetadata(item) {
     };
 }
 
-// ── Strategy 3: Consolidated onDeterminingFilename ───────────
 chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
     console.log('[Aria2] onDeterminingFilename:', item.url, '| mime:', item.mime, '| filename:', item.filename);
 
@@ -320,7 +307,6 @@ chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
         const shouldIntercept = allowedTypes.includes(ext) || isAllowedMime(mime);
 
         if (shouldIntercept) {
-            // Check deduplication before doing any async processing or calling suggest()
             if (recentlyHandled.has(item.url) && Date.now() - recentlyHandled.get(item.url) < 5000) {
                 console.log('[Aria2] Already handled (dedup skip in listener):', item.url);
                 chrome.downloads.cancel(item.id, () => {
@@ -354,5 +340,5 @@ chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
         }
     }).catch(() => suggest());
 
-    return true; // async suggest
+    return true;
 });

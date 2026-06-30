@@ -1,9 +1,4 @@
-// HTTP middleware: origin guard + request logging.
-//
-// The server exposes file-deleting and app-launching endpoints, so it must NOT
-// be reachable from arbitrary websites. Only the app's own frontend (localhost),
-// the bundled Chrome extension, and non-browser local clients (which send no
-// Origin header) are permitted.
+// block cross-origin requests — /api can delete files and launch apps
 const ALLOWED_ORIGIN_RE = /^(https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?|chrome-extension:\/\/[a-p]+)$/;
 
 function originAllowed(origin) {
@@ -21,8 +16,6 @@ function cors(req, res, next) {
     if (req.method === 'OPTIONS') {
         return res.sendStatus(originAllowed(origin) ? 204 : 403);
     }
-    // Block the request itself (not just the CORS response) so a cross-site page
-    // can't trigger side effects like file deletion without reading the reply.
     if (!originAllowed(origin)) {
         return res.status(403).json({ error: 'Cross-origin request blocked.' });
     }

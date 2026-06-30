@@ -2,7 +2,7 @@ const STREAM_BUFFER_THRESHOLD = 200000; // 200 KB buffer before streaming allowe
 
 const VIDEO_EXTS = [
     'mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv', 'm4v', '3gp', 'ts', 'mpg', 'mpeg',
-    'm2ts', 'mts', 'mxf', 'vob', 'ogv', 'rm', 'rmvb', 'divx', 'hevc', 'h264'
+    'm2ts', 'mts', 'mxf', 'vob', 'ogv', 'rm', 'rmvb', 'divx', 'm3u8'
 ];
 
 const AUDIO_EXTS = [
@@ -64,8 +64,8 @@ function getFilenameFromUrl(url, fallback = 'large_file') {
 
 function isVideoFile(filename) {
     if (!filename) return false;
-    const ext = filename.split('.').pop().toLowerCase();
-    return VIDEO_EXTS.includes(ext) || ext === 'm3u8';
+    const ext = getFileExtension(filename);
+    return VIDEO_EXTS.includes(ext);
 }
 
 function isAllowedMime(mime) {
@@ -79,11 +79,12 @@ function isAllowedMime(mime) {
            m === 'application/x-mobipocket-ebook' || m === 'application/msword' ||
            m === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
            m === 'application/vnd.ms-excel' || m === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-           m === 'application/vnd.ms-powerpoint' || m === 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+           m === 'application/vnd.ms-powerpoint' || m === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
+           m === 'application/x-mpegurl' || m === 'application/vnd.apple.mpegurl';
 }
 
 function getFileCategory(ext) {
-    if (VIDEO_EXTS.includes(ext) || ext === 'm3u8') return 'video';
+    if (VIDEO_EXTS.includes(ext)) return 'video';
     if (AUDIO_EXTS.includes(ext)) return 'audio';
     if (ARCHIVE_EXTS.includes(ext)) return 'archive';
     if (DOCUMENT_EXTS.includes(ext)) return 'document';

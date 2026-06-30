@@ -1,9 +1,3 @@
-/* ═══════════════════════════════════════════════════════════════════
-   DownStream — Popup Styles
-   Warm-industrial dark UI, compact download cards with live
-   progress bars, category badges, and contextual actions.
-   ═══════════════════════════════════════════════════════════════════ */
-
 :root {
   --bg:             #0f0f11;
   --surface:        #1a1a1e;
@@ -33,8 +27,6 @@
   --mono:           "SF Mono", "Fira Code", "Cascadia Code", ui-monospace, monospace;
 }
 
-/* ── Reset & Base ─────────────────────────────────────────────── */
-
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
@@ -54,8 +46,6 @@ body {
   flex-direction: column;
   max-height: 540px;
 }
-
-/* ── Header ───────────────────────────────────────────────────── */
 
 .header {
   display: flex;
@@ -118,8 +108,6 @@ body {
   text-align: center;
 }
 
-/* ── Sections ─────────────────────────────────────────────────── */
-
 .section {
   padding: 0 12px;
 }
@@ -152,16 +140,12 @@ body {
   border-radius: 10px;
 }
 
-/* ── Download List ────────────────────────────────────────────── */
-
 .dl-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding-bottom: 4px;
 }
-
-/* ── Download Card ────────────────────────────────────────────── */
 
 .dl-card {
   background: var(--surface);
@@ -323,8 +307,6 @@ body {
   flex-shrink: 0;
 }
 
-/* ── Action Buttons ───────────────────────────────────────────── */
-
 .dl-btn {
   all: unset;
   display: flex;
@@ -375,8 +357,6 @@ body {
   width: 14px;
   height: 14px;
 }
-
-/* ── Empty / Offline States ───────────────────────────────────── */
 
 .empty, .offline {
   display: flex;
@@ -435,8 +415,6 @@ code {
   color: var(--accent);
 }
 
-/* ── Footer ───────────────────────────────────────────────────── */
-
 .footer {
   padding: 10px 16px 14px;
   border-top: 1px solid var(--border);
@@ -462,14 +440,10 @@ code {
   background: var(--surface);
 }
 
-/* ── Scrollbar ────────────────────────────────────────────────── */
-
 #app::-webkit-scrollbar        { width: 5px; }
 #app::-webkit-scrollbar-track   { background: transparent; }
 #app::-webkit-scrollbar-thumb   { background: rgba(255,255,255,0.08); border-radius: 3px; }
 #app::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.14); }
-
-/* ── Category Badge Colors ────────────────────────────────────── */
 
 .cat-Videos    { color: #f472b6; }
 .cat-Audio     { color: #a78bfa; }
@@ -478,8 +452,6 @@ code {
 .cat-Images    { color: #34d399; }
 .cat-Software  { color: #fb923c; }
 .cat-Other     { color: var(--text-dim); }
-
-/* ── Stream Quality Selector & Progress (sidebar) ─────────────── */
 
 .quality-selector {
   padding: 10px 12px;

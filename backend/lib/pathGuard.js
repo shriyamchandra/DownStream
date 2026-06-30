@@ -1,8 +1,6 @@
 const path = require('path');
 
-// Guards file operations to within the configured download directory.
-// Resolves ".." first, so paths like "<downloadDir>/../../../etc/passwd" can't
-// escape the sandbox (a plain startsWith() check would let them through).
+// path.resolve before startsWith — plain prefix checks miss ../ traversal
 module.exports = function createPathGuard(config) {
     return {
         isWithin(targetPath) {
