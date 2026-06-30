@@ -80,6 +80,24 @@
 
   function bindEvents() {
     el.btnDashboard().addEventListener('click', openDashboard);
+
+    // Event delegation on document body to avoid re-attaching listeners on every poll tick
+    document.body.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-action]');
+      if (btn) {
+        const action = btn.dataset.action;
+        const gid = btn.dataset.gid;
+        handleAction(action, gid);
+        return;
+      }
+
+      const streamBtn = e.target.closest('[data-stream-action]');
+      if (streamBtn) {
+        const action = streamBtn.dataset.streamAction;
+        const url = streamBtn.dataset.url;
+        handleDetectedStreamAction(action, url);
+      }
+    });
   }
 
   async function detectServer() {
@@ -291,7 +309,13 @@
         const idx = historyItems.findIndex(h => h.gid === dl.gid);
         const merged = normaliseDl(dl);
         if (idx >= 0) {
-          historyItems[idx] = { ...historyItems[idx], ...merged };
+          historyItems[idx].status = dl.status;
+          historyItems[idx].completedLength = merged.completedLength;
+          historyItems[idx].totalLength = merged.totalLength;
+          historyItems[idx].downloadSpeed = merged.downloadSpeed;
+          historyItems[idx].percent = merged.percent;
+          historyItems[idx].errorCode = merged.errorCode;
+          historyItems[idx].errorMessage = merged.errorMessage;
         } else {
           historyItems.push(merged);
         }
@@ -330,7 +354,9 @@
       path:           file?.path || '',
       percent:        total > 0 ? Math.round((done / total) * 100) : 0,
       eta:            speed > 0 && total > done ? Math.ceil((total - done) / speed) : 0,
-      phase:          raw.phase
+      phase:          raw.phase,
+      url:            raw.url || (raw.urls && raw.urls[0]) || '',
+      urls:           raw.urls || []
     };
   }
 
@@ -403,25 +429,9 @@
       streamsCount.textContent = streams.length;
       streamsSection.hidden = streams.length === 0;
       streamsList.innerHTML = streams.map((url, i) => streamCardHTML(url, i)).join('');
-
-      streamsList.querySelectorAll('[data-stream-action]').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-          const action = btn.dataset.streamAction;
-          const url = btn.dataset.url;
-          handleDetectedStreamAction(action, url);
-        });
-      });
     }
 
     el.emptyState().hidden = (active.length + paused.length + recentShown.length + streams.length) > 0;
-
-    document.querySelectorAll('[data-action]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const action = btn.dataset.action;
-        const gid = btn.dataset.gid;
-        handleAction(action, gid);
-      });
-    });
   }
 
   function order(status) {
@@ -675,6 +685,36 @@
     `;
   }
 
+  function showConfirm(message) {
+    return new Promise((resolve) => {
+      const overlay = $('#confirm-overlay');
+      const msgEl = $('#confirm-message');
+      const btnCancel = $('#btn-confirm-cancel');
+      const btnOk = $('#btn-confirm-ok');
+      
+      if (!overlay || !msgEl || !btnCancel || !btnOk) {
+        resolve(false);
+        return;
+      }
+
+      msgEl.textContent = message;
+      overlay.hidden = false;
+
+      const cleanUp = (val) => {
+        overlay.hidden = true;
+        btnCancel.removeEventListener('click', handleCancel);
+        btnOk.removeEventListener('click', handleOk);
+        resolve(val);
+      };
+
+      const handleCancel = () => cleanUp(false);
+      const handleOk = () => cleanUp(true);
+
+      btnCancel.addEventListener('click', handleCancel);
+      btnOk.addEventListener('click', handleOk);
+    });
+  }
+
   async function handleAction(action, gid) {
     try {
       if (action === 'pause') {
@@ -694,7 +734,8 @@
         await fetchHistory();
         render();
       } else if (action === 'cancel') {
-        if (confirm('Cancel this download?')) {
+        const confirmed = await showConfirm('Cancel this download?');
+        if (confirmed) {
           try {
             if (wsReady) {
               await aria2Rpc('aria2.forceRemove', [gid]).catch(() => {});
@@ -709,7 +750,8 @@
           render();
         }
       } else if (action === 'remove') {
-        if (confirm('Remove from history?')) {
+        const confirmed = await showConfirm('Remove from history?');
+        if (confirmed) {
           await fetch(`http://localhost:${serverPort}/api/history/delete`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -812,7 +854,8 @@
     fetch(`http://localhost:${serverPort}/api/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10000)
     }).then(() => {
       setTimeout(() => {
         streamingItems.delete(gid);
