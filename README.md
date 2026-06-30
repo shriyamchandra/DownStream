@@ -254,6 +254,26 @@ File-type lists (video, audio, document extensions), content-type mappings, and 
 
 ---
 
+## Codebase Hardening & Refactoring
+
+The codebase has undergone a major engineering iteration focusing on performance, memory footprint, security, and timing resilience:
+
+### Chrome Extension Hardening
+- **Zero-Hang Download Timing** — Interception has been deferred to the `chrome.downloads.onChanged` listener (waiting until the `in_progress` state when metadata is resolved). The `onDeterminingFilename` listener now returns immediately, preventing the browser's download manager thread from hanging.
+- **Direct Media Stream Interceptor** — Left-clicking video or audio links (MP4, MKV, MP3, etc.) triggers a custom choice modal asking the user to either stream the file directly to their player or download it normally.
+- **MutationObserver Lifecycle Optimization** — The content script disconnects the MutationObserver as soon as the Floating Action Button (FAB) is injected. The observer is reconnected only when the FAB is dismissed or when a Single Page Application (SPA) route change occurs, eliminating background CPU overhead.
+- **Non-Blocking Confirm Dialogs** — The extension popup uses a custom in-popup overlay dialog rather than the default `confirm()` alert, preventing the extension popup window from losing focus and closing in Chrome.
+- **Event Delegation in Popup** — Replaced ad-hoc element queries and listener attachments in the popup's polling loop with body-level event delegation.
+- **Service Worker Keepalive** — Implemented an active keepalive loop inside `background.js` during network handshakes and retry polls to guarantee Chrome does not terminate the worker.
+- **Memory Leak Safeguards** — Added a periodic cleanup timer to prune stale items from the service worker's `recentlyHandled` cache Map.
+
+### Core & API Protection
+- **Port Scanner Parallelization** — Dynamic backend port discovery now queries all ports in parallel with an 800ms timeout threshold, dropping discovery latency from 3.2s to 800ms.
+- **Strict CORS Whitelisting** — Restricted request handling in `backend/middleware/httpGuards.js` by explicitly verifying and whitelisting the extension's unique ID block.
+- **Information Leak Redactions** — Redacted session cookies from server startup/interceptor logging and masked tracebacks under database write setting failures.
+
+---
+
 ## Troubleshooting
 
 | Problem | Fix |
