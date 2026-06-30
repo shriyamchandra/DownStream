@@ -25,7 +25,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-    if (changeInfo.status === 'loading') {
+    if (changeInfo.status === 'loading' || changeInfo.url) {
         detectedStreams.delete(tabId);
     }
 });
@@ -35,22 +35,20 @@ chrome.webRequest.onBeforeRequest.addListener(
         if (details.url.includes('localhost') || details.url.includes('127.0.0.1')) return;
         
         const url = details.url;
-        if (url.includes('.m3u8') || url.includes('.mpd')) {
-            if (!url.includes('-fragment') && !url.includes('_fragment')) {
-                if (details.tabId && details.tabId > 0) {
-                    let set = detectedStreams.get(details.tabId);
-                    if (!set) {
-                        set = new Set();
-                        detectedStreams.set(details.tabId, set);
-                    }
-                    if (set.size < 15) {
-                        set.add(url);
-                    }
+        if (!url.includes('-fragment') && !url.includes('_fragment')) {
+            if (details.tabId && details.tabId > 0) {
+                let set = detectedStreams.get(details.tabId);
+                if (!set) {
+                    set = new Set();
+                    detectedStreams.set(details.tabId, set);
+                }
+                if (set.size < 15) {
+                    set.add(url);
                 }
             }
         }
     },
-    { urls: ['<all_urls>'] }
+    { urls: ['*://*/*.m3u8*', '*://*/*.mpd*'] }
 );
 
 async function getServerPort() {
@@ -65,18 +63,28 @@ async function getServerPort() {
         }
     } catch (e) {}
 
-    for (const port of [3000, 3999, 8080, 4000]) {
+    const ports = [3000, 3999, 8080, 4000];
+    const pingPromises = ports.map(async (port) => {
         try {
             const res = await fetch(`http://localhost:${port}/api/ping`, { signal: AbortSignal.timeout(800) });
             if (res.ok) {
                 const json = await res.json();
-                const detectedPort = json.webPort || port;
-                await chrome.storage.local.set({ serverPort: detectedPort });
-                cachedServerPort = detectedPort;
-                return detectedPort;
+                return { port: json.webPort || port, ok: true };
             }
         } catch (e) {}
-    }
+        return { port, ok: false };
+    });
+
+    try {
+        const results = await Promise.all(pingPromises);
+        const successful = results.find(r => r.ok);
+        if (successful) {
+            await chrome.storage.local.set({ serverPort: successful.port });
+            cachedServerPort = successful.port;
+            return successful.port;
+        }
+    } catch (e) {}
+
     return cachedServerPort;
 }
 
@@ -166,20 +174,25 @@ async function sendToAria2(url, filename, referrer, cookiesString = '') {
             } catch (e) {}
         }
 
-        await new Promise(r => setTimeout(r, 2000));
-
-        try {
-            const data = await tryPost();
-            if (data.success) {
-                console.log('[Aria2] Retry succeeded, GID:', data.gid);
-                return true;
+        // Poll API readiness up to 15 times (every 500ms -> up to 7.5s) to allow app/aria2 to start up
+        for (let i = 0; i < 15; i++) {
+            await new Promise(r => setTimeout(r, 500));
+            try {
+                const data = await tryPost();
+                if (data.success) {
+                    console.log('[Aria2] Retry succeeded after app launch, GID:', data.gid);
+                    return true;
+                }
+                console.error('[Aria2] Retry app error:', data.error);
+                return false;
+            } catch (retryErr) {
+                // Keep polling if app is still starting up
+                if (i === 14) {
+                    console.error('[Aria2] ❌ App still not reachable after launch attempt:', retryErr.message);
+                }
             }
-            console.error('[Aria2] Retry app error:', data.error);
-            return false;
-        } catch (retryErr) {
-            console.error('[Aria2] ❌ App still not reachable after launch attempt:', retryErr.message);
-            return false;
         }
+        return false;
     }
 }
 
@@ -253,6 +266,45 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 chrome.downloads.onCreated.addListener((item) => {
     console.log('[Aria2] onCreated logged:', item.url, '| mime:', item.mime, '| state:', item.state);
+
+    if (isInternalUrl(item.url)) return;
+
+    chrome.storage.local.get(['enabled', 'interceptTypes']).then((settings) => {
+        if (!settings.enabled) return;
+
+        const mime = (item.mime || '').toLowerCase();
+        if (mime === 'text/html' || mime === 'text/plain') return;
+
+        const allowedTypes = settings.interceptTypes || defaultInterceptTypes;
+        const ext = getExt(item.filename, item.url);
+        const shouldIntercept = allowedTypes.includes(ext) || isAllowedMime(mime);
+
+        if (shouldIntercept) {
+            if (recentlyHandled.has(item.url) && Date.now() - recentlyHandled.get(item.url) < 5000) {
+                chrome.downloads.cancel(item.id, () => {
+                    chrome.downloads.erase({ id: item.id }, () => {
+                        if (chrome.runtime.lastError) {}
+                    });
+                });
+                return;
+            }
+            recentlyHandled.set(item.url, Date.now());
+
+            chrome.downloads.cancel(item.id, () => {
+                chrome.downloads.erase({ id: item.id }, () => {
+                    if (chrome.runtime.lastError) {}
+                });
+            });
+
+            getDownloadMetadata(item).then(async (meta) => {
+                const filename = item.filename ? item.filename.split(/[/\\]/).pop() : '';
+                await sendToAria2(item.url, filename, meta.referrer, meta.cookiesString);
+            }).catch(async () => {
+                const filename = item.filename ? item.filename.split(/[/\\]/).pop() : '';
+                await sendToAria2(item.url, filename, item.referrer || '', '');
+            });
+        }
+    }).catch(() => {});
 });
 
 async function getDownloadMetadata(item) {
@@ -296,6 +348,16 @@ chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
 
     if (isInternalUrl(item.url)) { suggest(); return; }
 
+    if (recentlyHandled.has(item.url) && Date.now() - recentlyHandled.get(item.url) < 5000) {
+        console.log('[Aria2] Already handled (dedup skip in listener):', item.url);
+        chrome.downloads.cancel(item.id, () => {
+            chrome.downloads.erase({ id: item.id }, () => {
+                if (chrome.runtime.lastError) {}
+            });
+        });
+        return;
+    }
+
     chrome.storage.local.get(['enabled', 'interceptTypes']).then((settings) => {
         if (!settings.enabled) { suggest(); return; }
 
@@ -307,33 +369,32 @@ chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
         const shouldIntercept = allowedTypes.includes(ext) || isAllowedMime(mime);
 
         if (shouldIntercept) {
-            if (recentlyHandled.has(item.url) && Date.now() - recentlyHandled.get(item.url) < 5000) {
-                console.log('[Aria2] Already handled (dedup skip in listener):', item.url);
-                chrome.downloads.cancel(item.id, () => {
-                    chrome.downloads.erase({ id: item.id });
-                });
-                suggest();
-                return;
-            }
+            recentlyHandled.set(item.url, Date.now());
 
             getDownloadMetadata(item).then(async (meta) => {
                 const filename = item.filename ? item.filename.split(/[/\\]/).pop() : '';
                 const sent = await sendToAria2(item.url, filename, meta.referrer, meta.cookiesString);
                 if (sent) {
                     chrome.downloads.cancel(item.id, () => {
-                        chrome.downloads.erase({ id: item.id });
+                        chrome.downloads.erase({ id: item.id }, () => {
+                            if (chrome.runtime.lastError) {}
+                        });
                     });
+                } else {
+                    suggest();
                 }
-                suggest();
             }).catch(async () => {
                 const filename = item.filename ? item.filename.split(/[/\\]/).pop() : '';
                 const sent = await sendToAria2(item.url, filename, item.referrer || '', '');
                 if (sent) {
                     chrome.downloads.cancel(item.id, () => {
-                        chrome.downloads.erase({ id: item.id });
+                        chrome.downloads.erase({ id: item.id }, () => {
+                            if (chrome.runtime.lastError) {}
+                        });
                     });
+                } else {
+                    suggest();
                 }
-                suggest();
             });
         } else {
             suggest();
