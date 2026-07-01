@@ -1,4 +1,7 @@
 const { execFile } = require('child_process');
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
@@ -14,6 +17,28 @@ function isUrlExpired(urlStr) {
     return false;
 }
 
+function getIinaPath() {
+    const paths = [
+        '/Applications/IINA.app/Contents/MacOS/iina-cli',
+        path.join(os.homedir(), 'Applications/IINA.app/Contents/MacOS/iina-cli')
+    ];
+    for (const p of paths) {
+        if (fs.existsSync(p)) return p;
+    }
+    return 'iina-cli';
+}
+
+function getMpvPath() {
+    const paths = [
+        '/opt/homebrew/bin/mpv',
+        '/usr/local/bin/mpv'
+    ];
+    for (const p of paths) {
+        if (fs.existsSync(p)) return p;
+    }
+    return 'mpv';
+}
+
 function launchPlayer({ player, targetUrl, audioUrl = null, originalUrl = null, formatId = null, streamUrlCache = null, notifier = null, title = '' }) {
     let bin, args;
 
@@ -22,13 +47,13 @@ function launchPlayer({ player, targetUrl, audioUrl = null, originalUrl = null, 
 
     if (useYtdlWatchUrl) {
         if (player === 'iina') {
-            bin = '/Applications/IINA.app/Contents/MacOS/iina-cli';
+            bin = getIinaPath();
             args = [originalUrl, '--'];
             if (formatId && formatId !== 'best') {
                 args.push(`--ytdl-format=${formatId}+bestaudio/best`);
             }
         } else { // mpv
-            bin = '/usr/local/bin/mpv';
+            bin = getMpvPath();
             args = [originalUrl];
             if (formatId && formatId !== 'best') {
                 args.push(`--ytdl-format=${formatId}+bestaudio/best`);
@@ -36,13 +61,13 @@ function launchPlayer({ player, targetUrl, audioUrl = null, originalUrl = null, 
         }
     } else {
         if (player === 'iina') {
-            bin = '/Applications/IINA.app/Contents/MacOS/iina-cli';
+            bin = getIinaPath();
             args = [targetUrl, '--', `--user-agent=${USER_AGENT}`];
         } else if (player === 'mpv') {
-            bin = '/usr/local/bin/mpv';
+            bin = getMpvPath();
             args = [targetUrl, `--user-agent=${USER_AGENT}`];
         } else if (player === 'vlc') {
-            bin = '/Applications/VLC.app/Contents/MacOS/VLC';
+            bin = 'open';
             let playUrl = targetUrl;
             if (audioUrl && originalUrl) {
                 const progCached = streamUrlCache ? streamUrlCache.get(`${originalUrl}|progressive`) : null;
@@ -52,9 +77,9 @@ function launchPlayer({ player, targetUrl, audioUrl = null, originalUrl = null, 
                 }
             }
             if (audioUrl && playUrl === targetUrl) {
-                args = [targetUrl, `--input-slave=${audioUrl}`, `--http-user-agent=${USER_AGENT}`];
+                args = ['-a', 'VLC', '--args', targetUrl, `:input-slave=${audioUrl}`, `--http-user-agent=${USER_AGENT}`];
             } else {
-                args = [playUrl, `--http-user-agent=${USER_AGENT}`];
+                args = ['-a', 'VLC', '--args', playUrl, `--http-user-agent=${USER_AGENT}`];
             }
         } else {
             bin = 'open';
