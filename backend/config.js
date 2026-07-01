@@ -4,7 +4,6 @@ const os = require('os');
 
 
 const { isPathSafe, getRealpath } = require('./config/pathSafety');
-const { isPlayerInstalled } = require('./config/playerValidator');
 const { resolveAppDataDir } = require('./config/appPaths');
 const { tryHealJson, extractKeysFromCorruptJson } = require('./config/recovery');
 const { writeJsonAtomicSync } = require('./config/atomicWriter');
@@ -118,9 +117,6 @@ function createConfig() {
             const validPlayers = ['vlc', 'mpv', 'iina', ''];
             if (!validPlayers.includes(player)) {
                 throw new Error(`Invalid preferred player: "${player}". Valid options are: vlc, mpv, iina, or empty string (default).`);
-            }
-            if (!isPlayerInstalled(player)) {
-                throw new Error(`Preferred player "${player}" is not installed or not found in standard system paths.`);
             }
             data.preferredPlayer = player;
         }
