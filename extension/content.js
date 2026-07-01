@@ -734,11 +734,21 @@
     document.body.appendChild(overlay);
     requestAnimationFrame(() => overlay.classList.add('ds-modal--visible'));
 
+    function getLocalDateTimeString(date) {
+      const pad = (num) => String(num).padStart(2, '0');
+      const year = date.getFullYear();
+      const month = pad(date.getMonth() + 1);
+      const day = pad(date.getDate());
+      const hours = pad(date.getHours());
+      const minutes = pad(date.getMinutes());
+      return `${year}-${month}-${day}T${hours}:${minutes}`;
+    }
+
     // Default to 1 hour from now
     const timeInput = overlay.querySelector('#ds-schedule-time');
     const defaultTime = new Date(Date.now() + 3600000);
-    timeInput.value = defaultTime.toISOString().slice(0, 16);
-    timeInput.min = new Date().toISOString().slice(0, 16);
+    timeInput.value = getLocalDateTimeString(defaultTime);
+    timeInput.min = getLocalDateTimeString(new Date());
 
     const closeModal = () => {
       overlay.classList.remove('ds-modal--visible');

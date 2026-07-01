@@ -199,6 +199,16 @@
   // Schedule download
   let pendingScheduleData = null;
 
+  function getLocalDateTimeString(date) {
+    const pad = (num) => String(num).padStart(2, '0');
+    const year = date.getFullYear();
+    const month = pad(date.getMonth() + 1);
+    const day = pad(date.getDate());
+    const hours = pad(date.getHours());
+    const minutes = pad(date.getMinutes());
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  }
+
   function showScheduleModal(data) {
     pendingScheduleData = data;
     const overlay = document.getElementById('schedule-overlay');
@@ -207,8 +217,8 @@
 
     // Default to 1 hour from now
     const defaultTime = new Date(Date.now() + 3600000);
-    datetimeInput.value = defaultTime.toISOString().slice(0, 16);
-    datetimeInput.min = new Date().toISOString().slice(0, 16);
+    datetimeInput.value = getLocalDateTimeString(defaultTime);
+    datetimeInput.min = getLocalDateTimeString(new Date());
     overlay.hidden = false;
   }
 
