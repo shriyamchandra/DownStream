@@ -1,6 +1,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const { execFile, exec } = require('child_process');
 const { VIDEO_EXTS, STREAM_BUFFER_THRESHOLD } = require('../shared-constants');
 const { resolveStreamUrls } = require('../lib/ytDlpUtils');
 const { launchPlayer, isUrlExpired, USER_AGENT } = require('../lib/playerLauncher');
@@ -29,6 +30,41 @@ function findFile(dir, name, depth = 0) {
 module.exports = function filesRoutes({ config, pathGuard, notifier, streamUrlCache }) {
     const router = express.Router();
 
+    function isYouTubeUrl(urlStr) {
+        try {
+            const host = new URL(urlStr).hostname.toLowerCase();
+            return host.includes('youtube.com') || host.includes('youtu.be');
+        } catch (e) { return false; }
+    }
+
+    function getYtDlpPath() {
+        const packaged = process.resourcesPath ? path.join(process.resourcesPath, 'yt-dlp') : '';
+        const local = path.join(config.projectRoot, 'bin', 'yt-dlp');
+        return (packaged && fs.existsSync(packaged)) ? packaged : local;
+    }
+
+    // Pre-resolve stream URLs for common formats in the background
+    // so /api/stream can serve from cache instantly
+    function preWarmStreamCache(srcUrl, formats) {
+        if (!streamUrlCache || !srcUrl || !isYouTubeUrl(srcUrl)) return;
+        const ytdlp = getYtDlpPath();
+        const formatsToResolve = ['best', '1080p', '720p'];
+
+        for (const fmt of formatsToResolve) {
+            const cacheKey = `${srcUrl}|${fmt}`;
+            if (streamUrlCache.has(cacheKey)) continue;
+
+            resolveStreamUrls(ytdlp, config, srcUrl, fmt, USER_AGENT, null)
+                .then(({ videoFormatId, videoUrl, audioUrl }) => {
+                    const resolvedKey = `${srcUrl}|${videoFormatId}`;
+                    streamUrlCache.set(resolvedKey, { url: videoUrl, audioUrl });
+                    streamUrlCache.set(cacheKey, { url: videoUrl, audioUrl });
+                    console.log(`[Stream] Pre-warmed cache for ${fmt}`);
+                })
+                .catch(() => {}); // silent — this is a background optimization
+        }
+    }
+
     router.post('/api/stream', (req, res) => {
         const { filename, filepath: providedPath, category, quality, url: srcUrlFromBody, formatId: formatIdFromBody } = req.body;
         if (quality) {
@@ -39,9 +75,130 @@ module.exports = function filesRoutes({ config, pathGuard, notifier, streamUrlCa
         }
         const formatId = formatIdFromBody || quality;
         const srcUrl = srcUrlFromBody || req.body.url;
-        if (formatId && srcUrl) {
-          const player = config.data.preferredPlayer !== undefined ? config.data.preferredPlayer : 'vlc';
 
+        const player = config.data.preferredPlayer !== undefined ? config.data.preferredPlayer : 'vlc';
+
+        // FIRST: Check if the file is already downloaded locally
+        let localFilepath = null;
+        if (providedPath && pathGuard.isWithin(providedPath) && fs.existsSync(providedPath)) {
+            localFilepath = providedPath;
+        } else if (filename) {
+            const name = path.basename(filename);
+            if (name) {
+                if (category) {
+                    const categoryDir = path.join(config.data.downloadDir, category);
+                    const found = findFile(categoryDir, name);
+                    if (found && pathGuard.isWithin(found)) localFilepath = found;
+                }
+                if (!localFilepath) {
+                    const found = findFile(config.data.downloadDir, name);
+                    if (found && pathGuard.isWithin(found)) localFilepath = found;
+                }
+            }
+        }
+
+        // If file exists locally, play it directly — no network needed
+        if (localFilepath) {
+            const ext = path.extname(localFilepath).toLowerCase().slice(1);
+            if (VIDEO_EXTS.includes(ext)) {
+                console.log(`[Stream] Playing local file: ${localFilepath}`);
+                if (player === 'mpv') {
+                    const mpvPath = ['/opt/homebrew/bin/mpv', '/usr/local/bin/mpv'].find(p => fs.existsSync(p)) || 'mpv';
+                    execFile(mpvPath, [localFilepath], (err) => {
+                        if (err) return res.status(500).json({ error: 'Failed to launch mpv.' });
+                        return res.json({ success: true, message: 'Player launched (local file)' });
+                    });
+                    setTimeout(() => { try { exec(`osascript -e 'tell application "mpv" to activate'`, () => {}); } catch(e) {} }, 500);
+                    return;
+                } else if (player === 'iina') {
+                    const iinaPath = ['/Applications/IINA.app/Contents/MacOS/iina-cli',
+                                     path.join(require('os').homedir(), 'Applications/IINA.app/Contents/MacOS/iina-cli')
+                                    ].find(p => fs.existsSync(p)) || 'iina-cli';
+                    execFile(iinaPath, [localFilepath], (err) => {
+                        if (err) return res.status(500).json({ error: 'Failed to launch IINA.' });
+                        return res.json({ success: true, message: 'Player launched (local file)' });
+                    });
+                    setTimeout(() => { try { exec(`osascript -e 'tell application "IINA" to activate'`, () => {}); } catch(e) {} }, 500);
+                    return;
+                } else {
+                    const openArgs = player === 'vlc' ? ['-a', 'VLC', localFilepath] : [localFilepath];
+                    execFile('open', openArgs, (err) => {
+                        if (err) return res.status(500).json({ error: `Failed to launch ${player || 'default player'}.` });
+                        return res.json({ success: true, message: 'Player launched (local file)' });
+                    });
+                    setTimeout(() => { try { exec(`osascript -e 'tell application "VLC" to activate'`, () => {}); } catch(e) {} }, 500);
+                    return;
+                }
+            }
+        }
+
+        // No local file found — resolve via yt-dlp for YouTube URLs
+        if (srcUrl && isYouTubeUrl(srcUrl)) {
+          if (streamUrlCache) {
+            const cacheKey = `${srcUrl}|${formatId || 'best'}`;
+            const cached = formatId ? streamUrlCache.get(cacheKey) : (streamUrlCache.get(cacheKey) || streamUrlCache.get(srcUrl));
+            if (cached) {
+              if (isUrlExpired(cached.url) || (cached.audioUrl && isUrlExpired(cached.audioUrl))) {
+                console.log(`[Stream API] Cache hit for key "${cacheKey}" is expired. Re-resolving.`);
+              } else {
+                console.log(`[Stream API] Cache hit for ${cacheKey}... — launching player instantly`);
+                launchPlayer({
+                  player,
+                  targetUrl: cached.url,
+                  audioUrl: cached.audioUrl,
+                  originalUrl: srcUrl,
+                  formatId: formatId || 'best',
+                  streamUrlCache,
+                  notifier,
+                  title: filename || srcUrl
+                });
+                return res.json({ success: true, message: 'Stream launched' });
+              }
+            }
+          }
+
+          const ytdlp = getYtDlpPath();
+          if (notifier) notifier.notify('DownStream', `Resolving stream for: ${(filename || '').substring(0, 45)}...`);
+
+          resolveStreamUrls(ytdlp, config, srcUrl, formatId || 'best', USER_AGENT, null)
+            .then(({ videoFormatId, videoUrl, audioFormatId, audioUrl }) => {
+              if (streamUrlCache) {
+                const resolvedKey = `${srcUrl}|${videoFormatId}`;
+                streamUrlCache.set(resolvedKey, { url: videoUrl, audioUrl });
+                const cacheKey = `${srcUrl}|${formatId || 'best'}`;
+                streamUrlCache.set(cacheKey, { url: videoUrl, audioUrl });
+              }
+              launchPlayer({
+                player,
+                targetUrl: videoUrl,
+                audioUrl,
+                originalUrl: srcUrl,
+                formatId: formatId || 'best',
+                streamUrlCache,
+                notifier,
+                title: filename || srcUrl
+              });
+              return res.json({ success: true, message: 'Stream launched' });
+            })
+            .catch(err => {
+              console.error('[Stream] yt-dlp failed, falling back to page URL:', err.message, err.stderr || '');
+              launchPlayer({
+                player,
+                targetUrl: srcUrl,
+                audioUrl: null,
+                originalUrl: srcUrl,
+                formatId: formatId || 'best',
+                streamUrlCache,
+                notifier,
+                title: filename || srcUrl
+              });
+              return res.json({ success: true, message: 'Stream launched (fallback)' });
+            });
+          return;
+        }
+
+        // Non-YouTube path with explicit formatId + URL
+        if (formatId && srcUrl) {
           if (streamUrlCache) {
             const cacheKey = `${srcUrl}|${formatId || 'best'}`;
             const cached = formatId ? streamUrlCache.get(cacheKey) : (streamUrlCache.get(cacheKey) || streamUrlCache.get(srcUrl));
@@ -65,16 +222,13 @@ module.exports = function filesRoutes({ config, pathGuard, notifier, streamUrlCa
             }
           }
 
-          const packaged = process.resourcesPath ? path.join(process.resourcesPath, 'yt-dlp') : '';
-          const local = path.join(config.projectRoot, 'bin', 'yt-dlp');
-          const ytdlp = (packaged && fs.existsSync(packaged)) ? packaged : local;
-          
-          resolveStreamUrls(ytdlp, config, srcUrl, formatId, USER_AGENT, config.data.youtubeCookiesBrowser)
+          const ytdlp = getYtDlpPath();
+          // Skip cookies for streaming to avoid Keychain prompts
+          resolveStreamUrls(ytdlp, config, srcUrl, formatId, USER_AGENT, null)
             .then(({ videoFormatId, videoUrl, audioFormatId, audioUrl }) => {
               if (streamUrlCache) {
                 const resolvedKey = `${srcUrl}|${videoFormatId}`;
                 streamUrlCache.set(resolvedKey, { url: videoUrl, audioUrl });
-                
                 if (!formatId || videoFormatId === formatId || formatId === 'best' || ['4k','2160p','1080p','720p','480p'].includes(formatId)) {
                   const cacheKey = `${srcUrl}|${formatId || 'best'}`;
                   streamUrlCache.set(cacheKey, { url: videoUrl, audioUrl });
@@ -148,16 +302,34 @@ module.exports = function filesRoutes({ config, pathGuard, notifier, streamUrlCa
             return res.status(500).json({ error: 'Could not read file size.' });
         }
 
-        const openArgs = [];
-        if (config.data.preferredPlayer === 'vlc') openArgs.push('-a', 'VLC');
-        else if (config.data.preferredPlayer === 'iina') openArgs.push('-a', 'IINA');
-        else if (config.data.preferredPlayer === 'mpv') openArgs.push('-a', 'mpv');
-        openArgs.push(filepath);
+        let openArgs;
+        if (player === 'mpv') {
+            const mpvPath = ['/opt/homebrew/bin/mpv', '/usr/local/bin/mpv'].find(p => fs.existsSync(p)) || 'mpv';
+            execFile(mpvPath, [filepath], (err) => {
+                if (err) return res.status(500).json({ error: 'Failed to launch mpv.' });
+                res.json({ success: true, message: 'Player launched!' });
+            });
+            setTimeout(() => { try { exec(`osascript -e 'tell application "mpv" to activate'`, () => {}); } catch(e) {} }, 500);
+            return;
+        } else if (player === 'iina') {
+            const iinaPath = ['/Applications/IINA.app/Contents/MacOS/iina-cli',
+                             path.join(require('os').homedir(), 'Applications/IINA.app/Contents/MacOS/iina-cli')
+                            ].find(p => fs.existsSync(p)) || 'iina-cli';
+            execFile(iinaPath, [filepath], (err) => {
+                if (err) return res.status(500).json({ error: 'Failed to launch IINA.' });
+                res.json({ success: true, message: 'Player launched!' });
+            });
+            setTimeout(() => { try { exec(`osascript -e 'tell application "IINA" to activate'`, () => {}); } catch(e) {} }, 500);
+            return;
+        } else {
+            openArgs = player === 'vlc' ? ['-a', 'VLC', filepath] : [filepath];
+        }
 
         execFile('open', openArgs, (err) => {
-            if (err) return res.status(500).json({ error: `Failed to launch ${config.data.preferredPlayer || 'default player'}.` });
+            if (err) return res.status(500).json({ error: `Failed to launch ${player || 'default player'}.` });
             res.json({ success: true, message: 'Player launched!' });
         });
+        setTimeout(() => { try { exec(`osascript -e 'tell application "VLC" to activate'`, () => {}); } catch(e) {} }, 500);
     });
 
     router.post('/api/delete', (req, res) => {
@@ -216,5 +388,6 @@ module.exports = function filesRoutes({ config, pathGuard, notifier, streamUrlCa
         res.json({ success: true });
     });
 
+    router.preWarmStreamCache = preWarmStreamCache;
     return router;
 };

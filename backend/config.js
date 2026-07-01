@@ -28,7 +28,10 @@ function createConfig() {
     const data = {
         preferredPlayer: 'vlc',
         downloadDir: path.join(os.homedir(), 'Downloads', 'DownStream'),
-        youtubeCookiesBrowser: ''
+        youtubeCookiesBrowser: '',
+        maxDownloadSpeed: 0,        // 0 = unlimited, value in KB/s
+        downloadSubtitles: false,
+        scheduledDownloads: []       // [{url, filename, referrer, scheduledTime, formatId}]
     };
 
     if (fs.existsSync(configPath)) {
@@ -144,6 +147,18 @@ function createConfig() {
 
         if (patch.youtubeCookiesBrowser !== undefined) {
             data.youtubeCookiesBrowser = patch.youtubeCookiesBrowser;
+        }
+
+        if (patch.maxDownloadSpeed !== undefined) {
+            const speed = parseInt(patch.maxDownloadSpeed, 10);
+            if (isNaN(speed) || speed < 0) {
+                throw new Error('maxDownloadSpeed must be a non-negative number (0 = unlimited, value in KB/s)');
+            }
+            data.maxDownloadSpeed = speed;
+        }
+
+        if (patch.downloadSubtitles !== undefined) {
+            data.downloadSubtitles = !!patch.downloadSubtitles;
         }
 
         save();

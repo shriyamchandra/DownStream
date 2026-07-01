@@ -5,6 +5,7 @@
   const WS_POLL_INTERVAL = 1500;   // ms between tellActive calls
   const REST_POLL_INTERVAL = 2500; // fallback polling interval
   const MAX_RECENT = 8;
+  const MAX_HISTORY = 100;
 
   const CAT_ICONS = {
     Videos:    '\uD83D\uDCF9',
@@ -24,6 +25,7 @@
   let pollTimer = null;
   let activeGids = new Map();   // gid → merged download object
   let historyItems = [];        // from /api/history
+  const normalisedCache = new Map(); // gid → normalised dl (invalidated on data change)
   let pendingStreamGid = null; // gid for which quality selector is shown in sidebar
   let pendingStreamQualities = new Map(); // gid → formats from /api/qualities
   let streamingItems = new Map(); // gid → { quality, startTime } for showing progress bar during stream prep
@@ -31,6 +33,11 @@
   let cachedActiveMerges = {};
   let activeMergesPollCounter = 0;
   let detectedStreamsList = [];
+
+  function esc(s) {
+    if (!s) return '';
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
 
   const $ = (sel) => document.querySelector(sel);
   const el = {
@@ -70,6 +77,7 @@
     setStatus('connected');
 
     await fetchHistory();
+    await loadSettings();
     try {
       detectedStreamsList = await fetchDetectedStreams();
     } catch (e) {}
@@ -96,9 +104,144 @@
         const action = streamBtn.dataset.streamAction;
         const url = streamBtn.dataset.url;
         handleDetectedStreamAction(action, url);
+        return;
+      }
+
+      // Quality option card selection
+      const qualityOpt = e.target.closest('.quality-opt');
+      if (qualityOpt) {
+        const container = qualityOpt.closest('.quality-options');
+        if (container) {
+          container.querySelectorAll('.quality-opt').forEach(o => o.classList.remove('quality-opt--selected'));
+          qualityOpt.classList.add('quality-opt--selected');
+          const radio = qualityOpt.querySelector('.quality-opt-radio');
+          if (radio) radio.checked = true;
+        }
       }
     });
   }
+
+  // Settings management
+  async function loadSettings() {
+    try {
+      const res = await fetch(`http://localhost:${serverPort}/api/settings`, { signal: AbortSignal.timeout(2000) });
+      if (res.ok) {
+        const settings = await res.json();
+        const speed = parseInt(settings.maxDownloadSpeed, 10) || 0;
+        const subs = !!settings.downloadSubtitles;
+        const slider = document.getElementById('setting-bandwidth');
+        const label = document.getElementById('bandwidth-value');
+        const subToggle = document.getElementById('setting-subtitles');
+        if (slider) slider.value = speed;
+        if (label) label.textContent = speed > 0 ? `${speed} KB/s` : 'Unlimited';
+        if (subToggle) subToggle.checked = subs;
+      }
+    } catch (e) {
+      console.warn('[Settings] Failed to load:', e);
+    }
+
+    try {
+      const res = await fetch(`http://localhost:${serverPort}/api/scheduled`, { signal: AbortSignal.timeout(2000) });
+      if (res.ok) {
+        const scheduled = await res.json();
+        const count = document.getElementById('scheduled-count');
+        if (count) count.textContent = scheduled.length;
+      }
+    } catch (e) {}
+
+    // Bind settings controls
+    const settingsBtn = document.getElementById('btn-settings');
+    const settingsClose = document.getElementById('btn-settings-close');
+    const settingsPanel = document.getElementById('settings-panel');
+    const slider = document.getElementById('setting-bandwidth');
+    const sliderLabel = document.getElementById('bandwidth-value');
+    const subToggle = document.getElementById('setting-subtitles');
+
+    if (settingsBtn && settingsPanel) {
+      settingsBtn.addEventListener('click', () => {
+        settingsPanel.hidden = !settingsPanel.hidden;
+      });
+    }
+    if (settingsClose && settingsPanel) {
+      settingsClose.addEventListener('click', () => { settingsPanel.hidden = true; });
+    }
+
+    if (slider) {
+      slider.addEventListener('input', () => {
+        const val = parseInt(slider.value, 10);
+        if (sliderLabel) sliderLabel.textContent = val > 0 ? `${val} KB/s` : 'Unlimited';
+      });
+      slider.addEventListener('change', async () => {
+        const val = parseInt(slider.value, 10);
+        try {
+          await fetch(`http://localhost:${serverPort}/api/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ maxDownloadSpeed: val })
+          });
+        } catch (e) {}
+      });
+    }
+
+    if (subToggle) {
+      subToggle.addEventListener('change', async () => {
+        try {
+          await fetch(`http://localhost:${serverPort}/api/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ downloadSubtitles: subToggle.checked })
+          });
+        } catch (e) {}
+      });
+    }
+  }
+
+  // Schedule download
+  let pendingScheduleData = null;
+
+  function showScheduleModal(data) {
+    pendingScheduleData = data;
+    const overlay = document.getElementById('schedule-overlay');
+    const datetimeInput = document.getElementById('schedule-datetime');
+    if (!overlay || !datetimeInput) return;
+
+    // Default to 1 hour from now
+    const defaultTime = new Date(Date.now() + 3600000);
+    datetimeInput.value = defaultTime.toISOString().slice(0, 16);
+    datetimeInput.min = new Date().toISOString().slice(0, 16);
+    overlay.hidden = false;
+  }
+
+  function hideScheduleModal() {
+    const overlay = document.getElementById('schedule-overlay');
+    if (overlay) overlay.hidden = true;
+    pendingScheduleData = null;
+  }
+
+  // Bind schedule modal buttons
+  document.getElementById('btn-schedule-cancel')?.addEventListener('click', hideScheduleModal);
+  document.getElementById('btn-schedule-ok')?.addEventListener('click', async () => {
+    const datetimeInput = document.getElementById('schedule-datetime');
+    if (!datetimeInput || !pendingScheduleData) return;
+
+    const scheduledTime = new Date(datetimeInput.value).getTime();
+    if (isNaN(scheduledTime) || scheduledTime <= Date.now()) {
+      return;
+    }
+
+    try {
+      await fetch(`http://localhost:${serverPort}/api/schedule`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...pendingScheduleData,
+          scheduledTime
+        })
+      });
+    } catch (e) {}
+
+    hideScheduleModal();
+  });
 
   async function detectServer() {
     for (const port of [3000, 3999, 8080, 4000]) {
@@ -320,6 +463,11 @@
           historyItems.push(merged);
         }
       }
+
+      // Cap history to prevent unbounded growth
+      if (historyItems.length > MAX_HISTORY) {
+        historyItems = historyItems.slice(0, MAX_HISTORY);
+      }
     } catch {
       if (wsReady) {
         wsReady = false;
@@ -332,15 +480,21 @@
   }
 
   function normaliseDl(raw) {
-    const total = parseInt(raw.totalLength || '0', 10);
-    const done  = parseInt(raw.completedLength || '0', 10);
-    const speed = parseInt(raw.downloadSpeed || '0', 10);
+    if (!raw || !raw.gid) return null;
+
+    // Cache by gid + status + completedLength to avoid re-creating on every poll
+    const cacheKey = `${raw.gid}|${raw.status}|${raw.completedLength}`;
+    if (normalisedCache.has(cacheKey)) return normalisedCache.get(cacheKey);
+
+    const total = parseInt(raw.totalLength, 10) || 0;
+    const done  = parseInt(raw.completedLength, 10) || 0;
+    const speed = parseInt(raw.downloadSpeed, 10) || 0;
     const file  = raw.files?.[0];
     const fname = file?.path ? file.path.split('/').pop() : (raw.filename || 'download');
     const ext   = fname.split('.').pop()?.toLowerCase() || '';
     const cat   = raw.category || guessCategory(ext);
 
-    return {
+    const result = {
       gid:            raw.gid,
       status:         raw.status || 'unknown',
       filename:       fname,
@@ -358,6 +512,11 @@
       url:            raw.url || (raw.urls && raw.urls[0]) || '',
       urls:           raw.urls || []
     };
+
+    // Cap cache to prevent unbounded growth
+    if (normalisedCache.size > 200) normalisedCache.clear();
+    normalisedCache.set(cacheKey, result);
+    return result;
   }
 
   function guessCategory(ext) {
@@ -365,7 +524,7 @@
       Videos:    ['mp4','mkv','avi','mov','webm','flv','wmv','m4v'],
       Audio:     ['mp3','flac','wav','aac','ogg','m4a','wma','opus'],
       Documents: ['pdf','doc','docx','xls','xlsx','ppt','pptx','epub','txt'],
-      Archives:  ['zip','rar','7z','tar','gz','dmg','iso'],
+      Archives:  ['zip','rar','7z','tar','gz','iso','cab'],
       Images:    ['jpg','jpeg','png','gif','svg','webp','bmp'],
       Software:  ['exe','msi','dmg','pkg','deb','rpm','apk'],
     };
@@ -392,6 +551,7 @@
       if (seen.has(h.gid)) continue;
       seen.add(h.gid);
       const dl = normaliseDl(h);
+      if (!dl) continue;
       if (dl.status === 'active' || dl.status === 'merging') active.push(dl);
       else if (dl.status === 'paused' || dl.status === 'waiting') paused.push(dl);
       else recent.push(dl);
@@ -487,7 +647,7 @@
   }
 
   function formatBytes(bytes, decimals = 1) {
-    if (bytes === 0) return '0 B';
+    if (!bytes || bytes <= 0) return '0 B';
     const k = 1024;
     const dm = decimals < 0 ? 0 : decimals;
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -496,7 +656,8 @@
   }
 
   function formatEta(seconds) {
-    if (!seconds || seconds === Infinity) return '';
+    if (!seconds || seconds <= 0 || seconds === Infinity) return '';
+    seconds = Math.ceil(seconds);
     if (seconds < 60) return `${seconds}s`;
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -512,35 +673,53 @@
       if (formats) {
         const combined = [...(formats.progressive || []), ...(formats.videoOnly || [])];
         if (combined.length > 0) {
-          combined.forEach(f => {
-            const label = `${f.resolution || f.formatId || 'format'} ${f.ext || ''} ${f.filesizeStr || ''}`.trim();
-            optionsHtml += `<option value="${f.formatId || f.format_id || 'best'}">${label}</option>`;
+          combined.forEach((f, i) => {
+            const fid = f.formatId || f.format_id || 'best';
+            const resLabel = f.resolution || fid;
+            const sizeStr = f.filesizeStr || '';
+            const extStr = f.ext || '';
+            const selected = i === 0 ? ' quality-opt--selected' : '';
+            optionsHtml += `
+              <div class="quality-opt${selected}" data-format-id="${esc(fid)}" data-gid="${esc(dl.gid)}">
+                <input type="radio" name="stream-q-${esc(dl.gid)}" class="quality-opt-radio" value="${esc(fid)}"${i === 0 ? ' checked' : ''}>
+                <div class="quality-opt-info">
+                  <span class="quality-opt-label">${esc(resLabel)}</span>
+                  ${sizeStr ? `<span class="quality-opt-meta">${esc(sizeStr)}</span>` : ''}
+                </div>
+                ${extStr ? `<span class="quality-opt-ext">${esc(extStr)}</span>` : ''}
+              </div>`;
           });
         } else {
-          optionsHtml = `<option value="best">Best available</option>`;
+          optionsHtml = `
+            <div class="quality-opt quality-opt--selected" data-format-id="best" data-gid="${dl.gid}">
+              <input type="radio" name="stream-q-${dl.gid}" class="quality-opt-radio" value="best" checked>
+              <div class="quality-opt-info"><span class="quality-opt-label">Best available</span></div>
+            </div>`;
         }
       } else {
-        optionsHtml = `
-          <option value="best">Best available</option>
-          <option value="4k">4K (2160p)</option>
-          <option value="1080p">1080p</option>
-          <option value="720p">720p</option>
-          <option value="480p">480p</option>
-        `;
+        ['best', '4k', '1080p', '720p', '480p'].forEach((q, i) => {
+          const label = q === 'best' ? 'Best available' : q.toUpperCase();
+          const selected = i === 0 ? ' quality-opt--selected' : '';
+          optionsHtml += `
+            <div class="quality-opt${selected}" data-format-id="${q}" data-gid="${dl.gid}">
+              <input type="radio" name="stream-q-${dl.gid}" class="quality-opt-radio" value="${q}"${i === 0 ? ' checked' : ''}>
+              <div class="quality-opt-info"><span class="quality-opt-label">${label}</span></div>
+            </div>`;
+        });
       }
       return `
-        <div class="dl-card quality-selector" data-gid="${dl.gid}">
+        <div class="dl-card quality-selector" data-gid="${esc(dl.gid)}">
           <div class="dl-row-top">
             <div class="dl-name">
-              <span class="dl-cat cat-${dl.category}">${CAT_ICONS[dl.category] || CAT_ICONS.Other}</span>
-              <span class="dl-filename" title="${dl.filename}">${dl.filename}</span>
+              <span class="dl-cat cat-${esc(dl.category)}">${CAT_ICONS[dl.category] || CAT_ICONS.Other}</span>
+              <span class="dl-filename" title="${esc(dl.filename)}">${esc(dl.filename)}</span>
             </div>
           </div>
           <div class="quality-chooser">
             <label>Select stream quality:</label>
-            <select id="stream-quality-${dl.gid}">
+            <div class="quality-options" id="stream-quality-${dl.gid}">
               ${optionsHtml}
-            </select>
+            </div>
             <div class="chooser-actions">
               <button class="dl-btn" data-action="confirm-stream-quality" data-gid="${dl.gid}">Stream</button>
               <button class="dl-btn dl-btn--cancel" data-action="cancel-stream-quality" data-gid="${dl.gid}">Cancel</button>
@@ -554,11 +733,11 @@
       const info = streamingItems.get(dl.gid);
       const qText = info.quality ? ` @ ${info.quality}` : '';
       return `
-        <div class="dl-card streaming" data-gid="${dl.gid}">
+        <div class="dl-card streaming" data-gid="${esc(dl.gid)}">
           <div class="dl-row-top">
             <div class="dl-name">
-              <span class="dl-cat cat-${dl.category}">${CAT_ICONS[dl.category] || CAT_ICONS.Other}</span>
-              <span class="dl-filename" title="${dl.filename}">${dl.filename}</span>
+              <span class="dl-cat cat-${esc(dl.category)}">${CAT_ICONS[dl.category] || CAT_ICONS.Other}</span>
+              <span class="dl-filename" title="${esc(dl.filename)}">${esc(dl.filename)}</span>
             </div>
           </div>
           <div class="stream-progress">
@@ -611,7 +790,7 @@
       metaHtml = `<span class="dl-status-text complete">Complete</span><span class="dl-meta-sep">•</span><span>${formatBytes(dl.totalLength)}</span>`;
     } else if (dl.status === 'error') {
       const errorMsg = dl.errorMessage || 'Unknown Error';
-      metaHtml = `<span class="dl-status-text error" title="${errorMsg}">Error: ${errorMsg}</span>`;
+      metaHtml = `<span class="dl-status-text error" title="${esc(errorMsg)}">Error: ${esc(errorMsg)}</span>`;
     } else {
       metaHtml = `<span class="dl-status-text">${dl.status}</span>`;
     }
@@ -662,11 +841,11 @@
     }
 
     return `
-      <div class="dl-card" data-gid="${dl.gid}">
+      <div class="dl-card" data-gid="${esc(dl.gid)}">
         <div class="dl-row-top">
           <div class="dl-name">
-            <span class="dl-cat cat-${dl.category}" title="${dl.category}">${catIcon}</span>
-            <span class="dl-filename" title="${dl.filename}">${dl.filename}</span>
+            <span class="dl-cat cat-${esc(dl.category)}" title="${esc(dl.category)}">${catIcon}</span>
+            <span class="dl-filename" title="${esc(dl.filename)}">${esc(dl.filename)}</span>
           </div>
           <span class="dl-pct ${pctClass}">${dl.percent}%</span>
         </div>
@@ -831,8 +1010,10 @@
   }
 
   function getSelectedQualityForStream(gid) {
-    const sel = document.getElementById(`stream-quality-${gid}`);
-    return sel ? sel.value : 'best';
+    const container = document.getElementById(`stream-quality-${gid}`);
+    if (!container) return 'best';
+    const selected = container.querySelector('.quality-opt--selected');
+    return selected ? selected.dataset.formatId : 'best';
   }
 
   function startStreamWithProgress(gid, quality, dl) {
@@ -871,8 +1052,10 @@
     return new Promise((resolve) => {
       try {
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+          if (chrome.runtime.lastError) { resolve([]); return; }
           if (tabs && tabs[0]) {
             chrome.runtime.sendMessage({ type: 'GET_DETECTED_STREAMS', tabId: tabs[0].id }, (response) => {
+              if (chrome.runtime.lastError) { resolve([]); return; }
               if (response && response.ok) {
                 resolve(response.streams || []);
               } else {
@@ -907,19 +1090,19 @@
         <div class="dl-row-top">
           <div class="dl-name">
             <span class="dl-cat cat-Videos">📺</span>
-            <span class="dl-filename" title="${streamUrl}">${cleanName}</span>
+            <span class="dl-filename" title="${esc(streamUrl)}">${esc(cleanName)}</span>
           </div>
           <span class="dl-pct" style="color: #0a84ff; font-size: 0.75rem;">${typeLabel}</span>
         </div>
         <div class="dl-row-bottom" style="margin-top: 8px; justify-content: space-between; display: flex; align-items: center;">
           <div class="dl-meta" style="max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-            <span class="dl-status-text" title="${streamUrl}" style="color: #888; font-size: 0.75rem;">${hostname}</span>
+            <span class="dl-status-text" title="${esc(streamUrl)}" style="color: #888; font-size: 0.75rem;">${esc(hostname)}</span>
           </div>
           <div class="dl-actions">
-            <button class="dl-btn dl-btn--stream" data-stream-action="play" data-url="${streamUrl}" title="Stream in Player">
+            <button class="dl-btn dl-btn--stream" data-stream-action="play" data-url="${esc(streamUrl)}" title="Stream in Player">
               <svg viewBox="0 0 24 24" fill="currentColor" style="width: 14px; height: 14px;"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
             </button>
-            <button class="dl-btn" data-stream-action="download" data-url="${streamUrl}" title="Download with DownStream" style="margin-left: 6px;">
+            <button class="dl-btn" data-stream-action="download" data-url="${esc(streamUrl)}" title="Download with DownStream" style="margin-left: 6px;">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width: 14px; height: 14px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
             </button>
           </div>

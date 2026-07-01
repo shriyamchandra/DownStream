@@ -138,10 +138,14 @@ export async function refreshDownloads() {
 export async function loadSettings() {
     try {
         state.appConfig = await callApi('/api/settings');
-        document.getElementById('prefPlayer').value = state.appConfig.preferredPlayer;
-        document.getElementById('prefDir').value = state.appConfig.downloadDir;
-        document.getElementById('prefCookiesBrowser').value = state.appConfig.youtubeCookiesBrowser || '';
-        document.getElementById('prefTheme').value = localStorage.getItem('appTheme') || 'system';
+        const prefPlayer = document.getElementById('prefPlayer');
+        const prefDir = document.getElementById('prefDir');
+        const prefCookies = document.getElementById('prefCookiesBrowser');
+        const prefTheme = document.getElementById('prefTheme');
+        if (prefPlayer) prefPlayer.value = state.appConfig.preferredPlayer || 'vlc';
+        if (prefDir) prefDir.value = state.appConfig.downloadDir || '';
+        if (prefCookies) prefCookies.value = state.appConfig.youtubeCookiesBrowser || '';
+        if (prefTheme) prefTheme.value = localStorage.getItem('appTheme') || 'system';
     } catch (e) {
         console.error('Failed to load settings', e);
     }
@@ -222,8 +226,12 @@ export async function streamFile(gid) {
     if (!d) return;
     const filename = getFileName(d);
     const filepath = d.files && d.files[0] && d.files[0].path ? d.files[0].path : null;
+    const isYt = typeof d.gid === 'string' && d.gid.startsWith('youtube-');
+    const url = isYt && d.urls && d.urls.length > 0 ? d.urls[0] : null;
     try {
-        const data = await callApi('/api/stream', { filename, filepath, category: d.category, gid });
+        const payload = { filename, filepath, category: d.category, gid };
+        if (url) payload.url = url;
+        const data = await callApi('/api/stream', payload);
         if (data.error) showToast('Streaming Error', data.error, 'error');
     } catch (e) {
         showToast('Streaming Failed', 'Failed to launch stream. Ensure the backend is running.', 'error');

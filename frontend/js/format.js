@@ -11,12 +11,12 @@ export function escapeHtml(str) {
 }
 
 export function formatBytes(bytes) {
-    if (bytes === 0 || bytes == null) return '0 B';
-    if (bytes < 0) return '0 B';
+    const num = parseFloat(bytes);
+    if (isNaN(num) || num <= 0) return '0 B';
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    const i = Math.floor(Math.log(num) / Math.log(k));
+    return parseFloat((num / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
 export function formatTime(seconds) {

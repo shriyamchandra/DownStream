@@ -143,6 +143,11 @@ module.exports = function createProcessManager(config) {
             '--save-session-interval=10'
         ];
 
+        // Apply bandwidth limit if configured (value in KB/s, aria2 expects bytes)
+        if (config.data.maxDownloadSpeed > 0) {
+            args.push(`--max-overall-download-limit=${config.data.maxDownloadSpeed}K`);
+        }
+
         console.log(`Starting aria2c: ${aria2cPath} ${args.join(' ')}`);
         ariaProcess = spawn(aria2cPath, args, { stdio: 'inherit' });
 

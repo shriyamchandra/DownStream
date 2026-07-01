@@ -1,9 +1,15 @@
-const { execFile } = require('child_process');
+const { execFile, exec } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+function activateApp(appName) {
+    try {
+        exec(`osascript -e 'tell application "${appName}" to activate'`, () => {});
+    } catch (e) {}
+}
 
 function isUrlExpired(urlStr) {
     try {
@@ -91,6 +97,10 @@ function launchPlayer({ player, targetUrl, audioUrl = null, originalUrl = null, 
     execFile(bin, args, (err) => {
         if (err) console.error(`[Stream Launch] Failed to launch ${player}: ${err.message}`);
     });
+
+    // Bring the player to the foreground
+    const appName = player === 'iina' ? 'IINA' : player === 'mpv' ? 'mpv' : 'VLC';
+    setTimeout(() => activateApp(appName), 500);
 
     if (notifier && title) {
         notifier.notify('DownStream', `Streaming in ${player.toUpperCase()}: ${title.substring(0, 45)}...`);

@@ -16,6 +16,10 @@ class StreamUrlCache {
         return null;
     }
 
+    has(key) {
+        return this.get(key) !== null;
+    }
+
     set(key, value) {
         this.clean();
         this.cache.set(key, {

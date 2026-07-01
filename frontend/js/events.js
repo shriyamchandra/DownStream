@@ -50,8 +50,12 @@ export function initEvents() {
                     state.appConfig = data.config;
                     localStorage.setItem('appTheme', preferredTheme);
                     applyTheme(preferredTheme);
-                    await client.call('changeGlobalOption', [{ dir: downloadDir }]);
                     showToast('Settings Saved', 'Your configuration was successfully updated.', 'success');
+                    try {
+                        await client.call('changeGlobalOption', [{ dir: downloadDir }]);
+                    } catch (ariaErr) {
+                        console.warn('Saved settings but failed to update aria2 download dir:', ariaErr);
+                    }
                 } else {
                     showToast('Error Saving Settings', data.error || 'Failed to save settings.', 'error');
                 }

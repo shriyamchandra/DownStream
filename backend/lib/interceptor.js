@@ -71,6 +71,17 @@ module.exports = function createInterceptor({
         return false;
     };
 
+    const isDirectMediaUrl = (urlStr) => {
+        try {
+            const parsed = new URL(urlStr);
+            const ext = parsed.pathname.split('.').pop().toLowerCase();
+            const mediaExts = ['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv', 'm4v', '3gp', 'ts',
+                               'mp3', 'flac', 'wav', 'ogg', 'm4a', 'aac', 'wma', 'opus', 'alac'];
+            return mediaExts.includes(ext);
+        } catch (e) {}
+        return false;
+    };
+
     return async function handleIntercept(data = {}) {
         const { url, filename, referrer, userAgent, cookies, formatId, formatExt } = data;
         if (!url) throw new Error('URL is required');
@@ -168,7 +179,8 @@ module.exports = function createInterceptor({
 
             let resolvePromise = activeStreamResolutions.get(url);
             if (!resolvePromise) {
-                resolvePromise = resolveStreamUrls(ytDlpPath, config, url, formatId, USER_AGENT, config.data.youtubeCookiesBrowser);
+                // Skip cookies for streaming to avoid Keychain prompts
+                resolvePromise = resolveStreamUrls(ytDlpPath, config, url, formatId, USER_AGENT, null);
                 activeStreamResolutions.set(url, resolvePromise);
             }
 
@@ -212,17 +224,52 @@ module.exports = function createInterceptor({
             return { success: true, streaming: true };
         }
 
-        if (!getAriaReady()) {
-            queuePendingIntercept(data);
-            return { success: true, queued: true };
-        }
-
         let cleanFilename = filename;
         if (cleanFilename) {
             cleanFilename = cleanFilename.replace(/\\/g, '/');
             cleanFilename = path.basename(cleanFilename);
             if (cleanFilename === '.' || cleanFilename === '..' || !cleanFilename) {
                 cleanFilename = 'downloaded_file';
+            }
+        }
+
+        // Stream direct media URLs (e.g. .mp4 links) instead of downloading
+        if (isStream && (isStreamPlaylistUrl(url) || isDirectMediaUrl(url))) {
+            const player = config.data.preferredPlayer !== undefined ? config.data.preferredPlayer : 'vlc';
+            if (notifier) notifier.notify('DownStream', `Streaming: ${cleanFilename || 'media'}...`);
+
+            launchPlayer({
+                player,
+                targetUrl: url,
+                audioUrl: null,
+                originalUrl: url,
+                formatId,
+                streamUrlCache,
+                notifier,
+                title: cleanFilename || 'media'
+            });
+            return { success: true, streaming: true };
+        }
+
+        if (!getAriaReady()) {
+            queuePendingIntercept(data);
+            return { success: true, queued: true };
+        }
+
+        // Check for duplicate active downloads
+        const activeDupe = history.items.find(x => x.urls && x.urls.includes(url) && (x.status === 'active' || x.status === 'waiting'));
+        if (activeDupe) {
+            if (notifier) notifier.notify('DownStream', `Already downloading: ${(cleanFilename || '').substring(0, 45)}`);
+            return { success: true, queued: true, duplicate: true };
+        }
+
+        // Check for completed duplicate on disk
+        const completedDupe = history.items.find(x => x.urls && x.urls.includes(url) && x.status === 'complete');
+        if (completedDupe) {
+            const dupePath = completedDupe.files?.[0]?.path || '';
+            if (dupePath && fs.existsSync(dupePath)) {
+                if (notifier) notifier.notify('DownStream', `File already exists: ${cleanFilename || 'file'}`);
+                return { success: true, duplicate: true, status: 'completed', filepath: dupePath };
             }
         }
 

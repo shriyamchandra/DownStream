@@ -74,8 +74,58 @@
 
     <!-- Footer -->
     <footer class="footer">
-      <button class="footer-btn" id="btn-dashboard">Open Dashboard &#8599;</button>
+      <div class="footer-row">
+        <button class="footer-btn" id="btn-dashboard">Open Dashboard &#8599;</button>
+        <button class="footer-btn footer-btn--icon" id="btn-settings" title="Settings">&#9881;</button>
+      </div>
     </footer>
+
+    <!-- Settings Panel -->
+    <div id="settings-panel" class="settings-panel" hidden>
+      <div class="settings-header">
+        <span class="settings-title">Settings</span>
+        <button class="settings-close" id="btn-settings-close">&times;</button>
+      </div>
+      <div class="settings-body">
+        <div class="setting-row">
+          <label class="setting-label">Bandwidth Limit</label>
+          <div class="setting-control">
+            <input type="range" id="setting-bandwidth" class="setting-slider" min="0" max="10240" step="100" value="0">
+            <span class="setting-value" id="bandwidth-value">Unlimited</span>
+          </div>
+        </div>
+        <div class="setting-row">
+          <label class="setting-label">Auto-download Subtitles</label>
+          <div class="setting-control">
+            <label class="toggle">
+              <input type="checkbox" id="setting-subtitles">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+        <div class="setting-row">
+          <label class="setting-label">Scheduled Downloads</label>
+          <div class="setting-control">
+            <span class="setting-count" id="scheduled-count">0</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Schedule Modal -->
+    <div id="schedule-overlay" class="confirm-overlay" hidden>
+      <div class="confirm-box schedule-box">
+        <p class="confirm-message">Schedule Download</p>
+        <div class="schedule-form">
+          <label class="schedule-label">Download at:</label>
+          <input type="datetime-local" id="schedule-datetime" class="schedule-input">
+        </div>
+        <div class="confirm-buttons">
+          <button class="confirm-btn confirm-btn--cancel" id="btn-schedule-cancel">Cancel</button>
+          <button class="confirm-btn confirm-btn--confirm" id="btn-schedule-ok">Schedule</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Confirm Dialog Overlay -->
     <div id="confirm-overlay" class="confirm-overlay" hidden>

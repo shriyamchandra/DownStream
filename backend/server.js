@@ -122,6 +122,12 @@ function startYoutubeDownload(gid, url, filename, formatId, chosenExt, referrer)
         args.push('--cookies-from-browser', config.data.youtubeCookiesBrowser);
     }
 
+    // Auto-download subtitles if enabled
+    if (config.data.downloadSubtitles && !isAudio) {
+        args.push('--write-sub', '--write-auto-sub', '--sub-lang', 'en,en-US,en-GB', '--sub-format', 'srt');
+        args.push('--embed-subs');
+    }
+
     if (isAudio) {
         args.push('-f', formatSpec);
         args.push('-x', '--audio-format', ext);
@@ -464,6 +470,11 @@ app.post('/api/qualities', async (req, res) => {
                         audioOnly
                     }
                 });
+
+                // Pre-warm stream URL cache in the background so /api/stream is instant
+                if (filesRouter.preWarmStreamCache) {
+                    filesRouter.preWarmStreamCache(url);
+                }
             })
             .catch(err => {
                 concurrentQualitiesCount = Math.max(0, concurrentQualitiesCount - 1);
@@ -494,8 +505,9 @@ const handleIntercept = createInterceptor({
     queuePendingIntercept: (data) => pendingIntercepts.push(data)
 });
 
-app.use(settingsRoutes({ config }));
-app.use(filesRoutes({ config, pathGuard, notifier, streamUrlCache }));
+app.use(settingsRoutes({ config, rpc }));
+const filesRouter = filesRoutes({ config, pathGuard, notifier, streamUrlCache });
+app.use(filesRouter);
 app.use(historyRoutes({ rpc, history, config, pathGuard, activeMerges, saveActiveMerges, activeYoutubeDownloads, startYoutubeDownload }));
 app.use(interceptRoutes({ rpc, notifier, events, handleIntercept }));
 
@@ -529,7 +541,24 @@ async function drainPendingIntercepts() {
   }
 }
 
-ensureAriaReady();
+ensureAriaReady().then(() => {
+    // Resume interrupted YouTube downloads from previous session
+    const interruptedYt = history.items.filter(h =>
+        h.gid && h.gid.startsWith('youtube-') && (h.status === 'active' || h.status === 'merging')
+    );
+    for (const item of interruptedYt) {
+        console.log(`[Resume] Restarting interrupted YouTube download: ${item.filename} (${item.gid})`);
+        item.status = 'active';
+        item.completedLength = 0;
+        item.totalLength = 0;
+        item.downloadSpeed = 0;
+        history.save();
+        startYoutubeDownload(item.gid, item.urls[0], item.filename, item.formatId, item.chosenExt, item.referrer);
+    }
+
+    // Start scheduled downloads checker
+    setInterval(checkScheduledDownloads, 10000);
+});
 
 let syncInterval = null;
 
@@ -547,6 +576,91 @@ function stopSync() {
 }
 
 startSync(2500);
+
+// Scheduled downloads
+function checkScheduledDownloads() {
+    const now = Date.now();
+    const scheduled = config.data.scheduledDownloads || [];
+    const due = scheduled.filter(d => d.scheduledTime <= now);
+    if (due.length === 0) return;
+
+    config.data.scheduledDownloads = scheduled.filter(d => d.scheduledTime > now);
+    config.save();
+
+    for (const item of due) {
+        console.log(`[Scheduler] Starting scheduled download: ${item.filename || item.url}`);
+        handleIntercept({
+            url: item.url,
+            filename: item.filename || '',
+            referrer: item.referrer || '',
+            formatId: item.formatId || null,
+            formatExt: item.formatExt || null,
+            stream: false
+        }).catch(e => console.error('[Scheduler] Failed:', e.message));
+    }
+}
+
+app.post('/api/schedule', (req, res) => {
+    const { url, filename, referrer, scheduledTime, formatId, formatExt } = req.body;
+    if (!url) return res.status(400).json({ error: 'URL required' });
+    if (!scheduledTime || scheduledTime <= Date.now()) {
+        return res.status(400).json({ error: 'scheduledTime must be a future timestamp (ms)' });
+    }
+
+    if (!config.data.scheduledDownloads) config.data.scheduledDownloads = [];
+    config.data.scheduledDownloads.push({ url, filename, referrer, scheduledTime, formatId, formatExt });
+    config.save();
+
+    const date = new Date(scheduledTime);
+    res.json({ success: true, message: `Download scheduled for ${date.toLocaleString()}` });
+});
+
+app.get('/api/scheduled', (req, res) => {
+    res.json(config.data.scheduledDownloads || []);
+});
+
+app.delete('/api/scheduled/:index', (req, res) => {
+    const idx = parseInt(req.params.index, 10);
+    const scheduled = config.data.scheduledDownloads || [];
+    if (isNaN(idx) || idx < 0 || idx >= scheduled.length) {
+        return res.status(400).json({ error: 'Invalid index' });
+    }
+    scheduled.splice(idx, 1);
+    config.data.scheduledDownloads = scheduled;
+    config.save();
+    res.json({ success: true });
+});
+
+// Duplicate detection
+app.post('/api/check-duplicate', (req, res) => {
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ error: 'URL required' });
+
+    const existing = history.items.find(h =>
+        h.urls && h.urls.includes(url) && (h.status === 'active' || h.status === 'waiting' || h.status === 'merging')
+    );
+    if (existing) {
+        return res.json({ duplicate: true, status: 'downloading', filename: existing.filename, gid: existing.gid });
+    }
+
+    const completed = history.items.find(h =>
+        h.urls && h.urls.includes(url) && h.status === 'complete'
+    );
+    if (completed) {
+        const filepath = completed.files?.[0]?.path || '';
+        const fileExists = filepath && fs.existsSync(filepath);
+        return res.json({
+            duplicate: true,
+            status: 'completed',
+            filename: completed.filename,
+            gid: completed.gid,
+            fileExists,
+            filepath
+        });
+    }
+
+    res.json({ duplicate: false });
+});
 
 const server = app.listen(config.webPort, () => {
     console.log(`\n============================================`);

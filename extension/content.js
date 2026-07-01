@@ -7,6 +7,7 @@
   let fab = null;
   let observer = null;
   let qualitiesPromise = null;
+  let fabDismissed = false;
 
   function safeSendMessage(message, callback) {
     if (!chrome.runtime?.id) {
@@ -53,7 +54,7 @@
     const host = location.hostname.toLowerCase();
     const blacklist = [
         'facebook.com', 'twitter.com', 'x.com', 'instagram.com', 'reddit.com',
-        'linkedin.com', 'pinterest.com', 'tumblr.com', 'tiktok.com',
+        'linkedin.com', 'pinterest.com', 'tumblr.com',
         'cnn.com', 'bbc.com', 'nytimes.com', 'washingtonpost.com', 'reuters.com'
     ];
     if (blacklist.some(domain => host.includes(domain))) {
@@ -92,6 +93,7 @@
 
   function injectFAB() {
     if (document.getElementById(FAB_ID)) return;
+    if (fabDismissed) return;
     if (!isVideoPage() && !isDirectMediaUrl()) return;
 
     if (EXCLUDED_PORTS.includes(location.port)) return;
@@ -174,7 +176,7 @@
         btn.style.opacity = '1';
       });
     });
-    wrap.querySelector('.ds-fab-btn--close').addEventListener('click', destroyFAB);
+    wrap.querySelector('.ds-fab-btn--close').addEventListener('click', dismissFAB);
 
     document.body.appendChild(wrap);
     fab = wrap;
@@ -190,6 +192,11 @@
     fab = null;
     setTimeout(() => el.remove(), 320);
     startWatching();
+  }
+
+  function dismissFAB() {
+    fabDismissed = true;
+    destroyFAB();
   }
 
   function pauseSiteVideo() {
@@ -242,7 +249,7 @@
         </div>
         <div class="ds-modal-footer">
           <button class="ds-modal-btn ds-modal-btn--cancel" id="ds-modal-cancel-btn">Cancel</button>
-          <button class="ds-modal-btn ds-modal-btn--stream" id="ds-modal-stream-btn" disabled style="background: rgba(255, 107, 53, 0.14); color: #ff6b35; margin-right: 8px; box-shadow: 0 4px 12px rgba(255, 107, 53, 0.15); border: none;">Watch / Stream</button>
+          <button class="ds-modal-btn ds-modal-btn--stream" id="ds-modal-stream-btn" disabled>Watch / Stream</button>
           <button class="ds-modal-btn ds-modal-btn--dl" id="ds-modal-dl-btn" disabled>Download</button>
         </div>
       </div>
@@ -258,6 +265,18 @@
 
     overlay.querySelector('#ds-modal-close-btn').addEventListener('click', closeModal);
     overlay.querySelector('#ds-modal-cancel-btn').addEventListener('click', closeModal);
+
+    // Focus trap: keep Tab inside the modal, Escape to close
+    overlay.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { closeModal(); return; }
+      if (e.key !== 'Tab') return;
+      const focusable = overlay.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled])');
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
 
     if (!qualitiesPromise) {
       const urlToFetch = location.href;
@@ -411,6 +430,7 @@
           const origText = streamBtn.textContent;
           streamBtn.textContent = 'Resolving...';
           streamBtn.disabled = true;
+          dlBtn.disabled = true;
 
           safeSendMessage({
             type: 'DOWNLOAD',
@@ -422,9 +442,22 @@
             formatId: selectedFormat.formatId,
             formatExt: selectedFormat.ext,
             isSplit: selectedFormat.isSplit
-          }, () => {
-            streamBtn.textContent = origText;
-            streamBtn.disabled = false;
+          }, (response) => {
+            if (response && response.ok) {
+              streamBtn.textContent = '✓ Streaming!';
+              setTimeout(() => {
+                streamBtn.textContent = origText;
+                streamBtn.disabled = false;
+                dlBtn.disabled = false;
+              }, 2000);
+            } else {
+              streamBtn.textContent = 'Failed';
+              setTimeout(() => {
+                streamBtn.textContent = origText;
+                streamBtn.disabled = false;
+                dlBtn.disabled = false;
+              }, 1500);
+            }
           });
         });
       }
@@ -458,7 +491,7 @@
         : `${f.resolution} (${f.fps ? f.fps + ' fps' : 'standard'})`;
 
       return `
-        <div class="ds-format-option" data-format-id="${f.formatId}" data-ext="${f.ext}" data-is-split="${f.isSplit ? 'true' : 'false'}">
+        <div class="ds-format-option" data-format-id="${esc(f.formatId)}" data-ext="${esc(f.ext)}" data-is-split="${f.isSplit ? 'true' : 'false'}">
           <input type="radio" name="ds-format" class="ds-radio-input">
           <div class="ds-format-details">
             <div class="ds-format-row">
@@ -484,18 +517,19 @@
   }
 
   function spinnerSvg() {
-    return `<svg class="ds-fab-icon ds-spinner-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="animation: ds-spin 1s linear infinite;">
+    return `<svg class="ds-fab-icon ds-spinner-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="animation: ds-fab-spin 1s linear infinite;">
       <circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.2)"/>
       <path d="M12 2a10 10 0 0 1 10 10"/>
     </svg>`;
   }
 
-  function esc(s) { const d = document.createElement('span'); d.textContent = s; return d.innerHTML; }
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
   function trunc(s, n) { return s.length > n ? s.slice(0, n - 1) + '\u2026' : s; }
 
   function check() {
     if (location.href !== currentHref) {
       currentHref = location.href;
+      fabDismissed = false;
       destroyFAB();
       qualitiesPromise = null;
       setTimeout(injectFAB, INITIAL_DELAY_MS);
@@ -505,6 +539,8 @@
       }
     }
   }
+
+  let popstateHandler = null;
 
   function startWatching() {
     if (observer) {
@@ -517,7 +553,11 @@
       timer = setTimeout(check, SPA_DEBOUNCE_MS);
     });
     observer.observe(document.documentElement, { childList: true, subtree: true });
-    window.addEventListener('popstate', () => setTimeout(check, 300));
+    if (popstateHandler) {
+      window.removeEventListener('popstate', popstateHandler);
+    }
+    popstateHandler = () => setTimeout(check, 300);
+    window.addEventListener('popstate', popstateHandler);
   }
 
   const knownExtensions = [
@@ -562,7 +602,18 @@
       if (anchor.hasAttribute('data-ds-bypass')) return false;
       if (anchor.hasAttribute('download')) return true;
       const ext = getExt(href);
-      if (clickInterceptExtensions.includes(ext) || videoExtensions.includes(ext)) return true;
+      if (clickInterceptExtensions.includes(ext)) return true;
+      if (videoExtensions.includes(ext)) {
+          // Don't intercept if the anchor is inside a video player container
+          // (e.g., video.js, Plyr, or custom players that handle .mp4 clicks)
+          if (anchor.closest('video, .video-js, .plyr, .jw-video, [data-plyr], .html5-video-container')) return false;
+          // Don't intercept if there's a video element on the page that might be using this URL
+          const videos = document.querySelectorAll('video');
+          for (const v of videos) {
+              if (v.src === href || v.currentSrc === href) return false;
+          }
+          return true;
+      }
       return false;
   }
 
@@ -589,7 +640,8 @@
         </div>
         <div class="ds-modal-footer">
           <button class="ds-modal-btn ds-modal-btn--cancel" id="ds-modal-cancel-btn">Cancel</button>
-          <button class="ds-modal-btn ds-modal-btn--stream" id="ds-modal-stream-btn" style="background: rgba(255, 107, 53, 0.14); color: #ff6b35; margin-right: 8px; box-shadow: 0 4px 12px rgba(255, 107, 53, 0.15); border: none;">Watch / Stream</button>
+          <button class="ds-modal-btn ds-modal-btn--schedule" id="ds-modal-schedule-btn">Schedule</button>
+          <button class="ds-modal-btn ds-modal-btn--stream" id="ds-modal-stream-btn">Watch / Stream</button>
           <button class="ds-modal-btn ds-modal-btn--dl" id="ds-modal-dl-btn">Download</button>
         </div>
       </div>
@@ -605,6 +657,18 @@
 
     overlay.querySelector('#ds-modal-close-btn').addEventListener('click', closeModal);
     overlay.querySelector('#ds-modal-cancel-btn').addEventListener('click', closeModal);
+
+    // Focus trap: keep Tab inside the modal, Escape to close
+    overlay.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { closeModal(); return; }
+      if (e.key !== 'Tab') return;
+      const focusable = overlay.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled])');
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
 
     overlay.querySelector('#ds-modal-dl-btn').addEventListener('click', () => {
       closeModal();
@@ -629,6 +693,79 @@
         stream: true
       });
       showToast('Streaming media...');
+    });
+
+    overlay.querySelector('#ds-modal-schedule-btn').addEventListener('click', () => {
+      closeModal();
+      showSchedulePicker(href, filename);
+    });
+  }
+
+  function showSchedulePicker(url, filename) {
+    if (document.getElementById('downstream-modal-overlay')) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'downstream-modal-overlay';
+    overlay.innerHTML = `
+      <div id="downstream-modal">
+        <div class="ds-modal-header">
+          <span class="ds-modal-title">Schedule Download</span>
+          <button class="ds-modal-close" id="ds-modal-close-btn">&times;</button>
+        </div>
+        <div class="ds-modal-body">
+          <div class="ds-video-info">
+            <span class="ds-video-title" style="font-weight: 600;">${esc(filename || url)}</span>
+          </div>
+          <div style="padding: 12px 0;">
+            <label style="font-size: 13px; color: #e1e1e1; display: block; margin-bottom: 8px;">Download at:</label>
+            <input type="datetime-local" id="ds-schedule-time"
+              style="width: 100%; background: rgba(255,255,255,0.05); color: #f0ece4; border: 1px solid rgba(255,255,255,0.1);
+              border-radius: 8px; padding: 10px 12px; font-size: 14px; font-family: inherit; box-sizing: border-box;">
+          </div>
+        </div>
+        <div class="ds-modal-footer">
+          <button class="ds-modal-btn ds-modal-btn--cancel" id="ds-modal-cancel-btn">Cancel</button>
+          <button class="ds-modal-btn ds-modal-btn--dl" id="ds-modal-confirm-schedule">Schedule</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => overlay.classList.add('ds-modal--visible'));
+
+    // Default to 1 hour from now
+    const timeInput = overlay.querySelector('#ds-schedule-time');
+    const defaultTime = new Date(Date.now() + 3600000);
+    timeInput.value = defaultTime.toISOString().slice(0, 16);
+    timeInput.min = new Date().toISOString().slice(0, 16);
+
+    const closeModal = () => {
+      overlay.classList.remove('ds-modal--visible');
+      setTimeout(() => overlay.remove(), 300);
+    };
+
+    overlay.querySelector('#ds-modal-close-btn').addEventListener('click', closeModal);
+    overlay.querySelector('#ds-modal-cancel-btn').addEventListener('click', closeModal);
+
+    overlay.querySelector('#ds-modal-confirm-schedule').addEventListener('click', () => {
+      const scheduledTime = new Date(timeInput.value).getTime();
+      if (isNaN(scheduledTime) || scheduledTime <= Date.now()) {
+        showToast('Please select a future time');
+        return;
+      }
+      safeSendMessage({
+        type: 'SCHEDULE',
+        url: url,
+        filename: filename,
+        referrer: location.href,
+        scheduledTime: scheduledTime
+      });
+      closeModal();
+      showToast('Download scheduled!');
+    });
+
+    overlay.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { closeModal(); return; }
     });
   }
 
@@ -709,7 +846,7 @@
           });
           document.body.appendChild(toast);
       }
-      toast.innerHTML = `<span style="font-size:1rem">⬇️</span> ${message}`;
+      toast.textContent = message;
       toast.style.opacity = '1';
       clearTimeout(toast._timeout);
       toast._timeout = setTimeout(() => { toast.style.opacity = '0'; }, 3000);
