@@ -696,7 +696,8 @@
     });
 
     overlay.querySelector('#ds-modal-schedule-btn').addEventListener('click', () => {
-      closeModal();
+      // Remove current modal immediately (skip animation) so schedule picker can open
+      overlay.remove();
       showSchedulePicker(href, filename);
     });
   }

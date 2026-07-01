@@ -637,6 +637,10 @@ code {
   z-index: 999999;
 }
 
+.confirm-overlay[hidden] {
+  display: none !important;
+}
+
 .confirm-box {
   background: var(--surface-raised);
   border: 1px solid var(--border);

@@ -145,6 +145,7 @@ module.exports = function createInterceptor({
                 
                 startYoutubeDownload(gid, url, cleanFilename, formatId, chosenExt, referrer);
                 
+                events.emit('intercept', { url, filename: cleanFilename });
                 return { success: true, queued: true };
             }
 
