@@ -37,17 +37,37 @@ class Aria2Client {
 
     call(method, params = []) {
         return new Promise((resolve, reject) => {
-            const id = ++this.msgId;
-            this.callbacks[id] = { resolve, reject };
             if (this.ws.readyState === WebSocket.OPEN) {
+                const id = ++this.msgId;
+                this.callbacks[id] = { resolve, reject };
                 this.ws.send(JSON.stringify({
                     jsonrpc: '2.0',
                     id: id.toString(),
                     method: `aria2.${method}`,
                     params
                 }));
+            } else if (this.ws.readyState === WebSocket.CONNECTING) {
+                const MAX_RETRIES = 5;
+                const BASE_DELAY = 500;
+                const retryWithBackoff = (attempt) => {
+                    if (this.ws.readyState === WebSocket.OPEN) {
+                        const id = ++this.msgId;
+                        this.callbacks[id] = { resolve, reject };
+                        this.ws.send(JSON.stringify({
+                            jsonrpc: '2.0',
+                            id: id.toString(),
+                            method: `aria2.${method}`,
+                            params
+                        }));
+                    } else if (attempt >= MAX_RETRIES) {
+                        reject(new Error('WebSocket not connected after retries'));
+                    } else {
+                        setTimeout(() => retryWithBackoff(attempt + 1), BASE_DELAY * Math.pow(2, attempt));
+                    }
+                };
+                retryWithBackoff(0);
             } else {
-                setTimeout(() => this.call(method, params).then(resolve, reject), 500);
+                reject(new Error('WebSocket is closed'));
             }
         });
     }

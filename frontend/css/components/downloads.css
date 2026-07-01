@@ -148,6 +148,10 @@
 .download-row.selected .row-actions,
 .download-row.expanded .row-actions { opacity: 1; }
 
+@media (hover: none) {
+    .row-actions { opacity: 1; }
+}
+
 /* --- Row details panel ------------------------------------------ */
 .row-details {
     margin-top: 2px;

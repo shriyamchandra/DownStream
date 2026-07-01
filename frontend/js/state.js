@@ -3,7 +3,8 @@ export const state = {
     currentFilter: 'all',
     appConfig: { preferredPlayer: 'vlc', downloadDir: '' },
     speedHistory: [],
-    expandedGids: new Set()
+    expandedGids: new Set(),
+    activeMerges: {}
 };
 
 export const MAX_SPEED_POINTS = 30;

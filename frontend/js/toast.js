@@ -1,3 +1,5 @@
+import { escapeHtml } from './format.js';
+
 let toastContainer = null;
 
 function ensureToastContainer() {
@@ -44,8 +46,8 @@ export function showToast(title, desc = '', type = 'success') {
             ${iconSvg}
         </div>
         <div class="toast-content">
-            <div class="toast-title">${title}</div>
-            ${desc ? `<div class="toast-desc">${desc}</div>` : ''}
+            <div class="toast-title">${escapeHtml(title)}</div>
+            ${desc ? `<div class="toast-desc">${escapeHtml(desc)}</div>` : ''}
         </div>
     `;
 

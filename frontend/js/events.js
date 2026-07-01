@@ -142,7 +142,11 @@ export function initEvents() {
         });
     }
 
-    document.getElementById('searchBar').addEventListener('input', renderDownloads);
+    let searchDebounce = null;
+    document.getElementById('searchBar').addEventListener('input', () => {
+        clearTimeout(searchDebounce);
+        searchDebounce = setTimeout(renderDownloads, 200);
+    });
     document.getElementById('sortSelect').addEventListener('change', renderDownloads);
 
     const clearHistoryBtn = document.getElementById('clearHistoryBtn');

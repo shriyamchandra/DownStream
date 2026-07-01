@@ -53,7 +53,7 @@ select {
     padding-left: var(--input-icon-offset);
 }
 
-select option { background-color: #1a1a21; color: var(--text-primary); }
+select option { background-color: var(--bg-surface); color: var(--text-primary); }
 
 input::placeholder,
 input::-webkit-input-placeholder { color: var(--placeholder); opacity: 1; }

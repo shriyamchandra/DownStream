@@ -149,9 +149,9 @@ function getFilteredDownloads() {
 
     const sortVal = document.getElementById('sortSelect').value;
     if (sortVal === 'date-desc') {
-        list.sort((a, b) => new Date(b.addedDate || Date.now()) - new Date(a.addedDate || Date.now()));
+        list.sort((a, b) => (b.addedDate || '').localeCompare(a.addedDate || ''));
     } else if (sortVal === 'date-asc') {
-        list.sort((a, b) => new Date(a.addedDate || Date.now()) - new Date(b.addedDate || Date.now()));
+        list.sort((a, b) => (a.addedDate || '').localeCompare(b.addedDate || ''));
     } else if (sortVal === 'name-asc') {
         list.sort((a, b) => getFileName(a).localeCompare(getFileName(b)));
     } else if (sortVal === 'name-desc') {
@@ -243,7 +243,7 @@ export function renderDownloads() {
             const etaSeconds = speed === 0 ? 0 : Math.floor((total - completed) / speed);
 
             const filename = getFileName(d);
-            const canStream = (d.status === 'complete' || completed > 200000) && isVideoFile(filename);
+            const canStream = (d.status === 'complete' || completed > STREAM_BUFFER_THRESHOLD) && isVideoFile(filename);
             const canShowInFinder = d.status === 'complete' || (completed > 0 && d.files && d.files.length > 0);
             const showSpeed = d.status === 'active';
             const speedInner = showSpeed ? `Speed: ${formatBytes(speed)}/s <span class="eta">· ETA ${formatTime(etaSeconds)}</span>` : '';

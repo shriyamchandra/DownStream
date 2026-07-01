@@ -6,7 +6,11 @@ import { renderDownloads, updateBadge } from './render.js';
 import { drawSpeedGraph } from './speedGraph.js';
 import { showToast } from './toast.js';
 
+let _refreshing = false;
+
 export async function refreshDownloads() {
+    if (_refreshing) return;
+    _refreshing = true;
     try {
         const activeMerges = await callApi('/api/active-merges').catch(() => ({}));
         state.activeMerges = activeMerges;
@@ -126,6 +130,8 @@ export async function refreshDownloads() {
         renderDownloads();
     } catch (e) {
         console.error('Failed to fetch data', e);
+    } finally {
+        _refreshing = false;
     }
 }
 
